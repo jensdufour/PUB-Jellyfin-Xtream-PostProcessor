@@ -23,7 +23,7 @@ dashboard.
 Add this custom repository in Jellyfin's plugin settings:
 
 ```text
-https://raw.githubusercontent.com/jensdufour/PUB-Jellyfin-Xtream-PostProcessor/main/manifest.json
+https://jensdufour.github.io/PUB-Jellyfin-Xtream-PostProcessor/manifest.json
 ```
 
 Install **Xtream Post Processor** from the catalog and restart Jellyfin. The
