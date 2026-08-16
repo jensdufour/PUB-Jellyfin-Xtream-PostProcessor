@@ -11,6 +11,7 @@ dashboard.
 
 - Cross-platform `FileSystemWatcher` for `xtream-library/sync_history.json`.
 - Dashboard tasks for enrichment and normalization audits.
+- Detailed audit JSON under Jellyfin's `data/xtream-post-processor` directory.
 - Timestamp-based sync selection that covers manual and scheduled Xtream runs.
 - Compatible reads of the legacy `xtream-metadata-enrichment.json` state.
 - Provider-prefix, metadata-ID, year/country, and known-series title rules.

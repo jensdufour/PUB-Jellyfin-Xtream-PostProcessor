@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.0.3
+
+- Persist detailed enrichment and normalization shadow reports.
+- Keep audit parity observable when Jellyfin logging is restricted to errors.
+
 ## 0.1.0.2
 
 - Publish the plugin-owned state migration with machine-readable release packaging.

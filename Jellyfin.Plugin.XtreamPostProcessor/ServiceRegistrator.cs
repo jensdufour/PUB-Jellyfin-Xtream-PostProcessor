@@ -18,6 +18,7 @@ public sealed class ServiceRegistrator : IPluginServiceRegistrator
         serviceCollection.AddSingleton<SyncHistoryReader>();
         serviceCollection.AddSingleton<EnrichmentStateReader>();
         serviceCollection.AddSingleton<LibraryAuditService>();
+        serviceCollection.AddSingleton<AuditReportWriter>();
         serviceCollection.AddHostedService<XtreamSyncWatcher>();
     }
 }

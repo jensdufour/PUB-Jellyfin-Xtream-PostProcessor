@@ -10,6 +10,7 @@ namespace Jellyfin.Plugin.XtreamPostProcessor.Tasks;
 public sealed class EnrichXtreamTask : IScheduledTask, IConfigurableScheduledTask
 {
     private readonly LibraryAuditService _auditService;
+    private readonly AuditReportWriter _reportWriter;
     private readonly ITaskManager _taskManager;
     private readonly ILogger<EnrichXtreamTask> _logger;
 
@@ -18,10 +19,12 @@ public sealed class EnrichXtreamTask : IScheduledTask, IConfigurableScheduledTas
     /// </summary>
     public EnrichXtreamTask(
         LibraryAuditService auditService,
+        AuditReportWriter reportWriter,
         ITaskManager taskManager,
         ILogger<EnrichXtreamTask> logger)
     {
         _auditService = auditService;
+        _reportWriter = reportWriter;
         _taskManager = taskManager;
         _logger = logger;
     }
@@ -66,6 +69,7 @@ public sealed class EnrichXtreamTask : IScheduledTask, IConfigurableScheduledTas
         }
 
         var report = await _auditService.AuditEnrichmentAsync(cancellationToken).ConfigureAwait(false);
+        await _reportWriter.WriteEnrichmentAsync(report, cancellationToken).ConfigureAwait(false);
         _logger.LogInformation(
             "Xtream enrichment audit: sync={SyncIdentity} success={SyncSuccess} scanned={ScannedCount} candidates={CandidateCount} invalidProviderIds={InvalidCount}",
             report.SyncResult?.Identity,

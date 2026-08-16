@@ -10,6 +10,7 @@ namespace Jellyfin.Plugin.XtreamPostProcessor.Tasks;
 public sealed class NormalizeXtreamTask : IScheduledTask, IConfigurableScheduledTask
 {
     private readonly LibraryAuditService _auditService;
+    private readonly AuditReportWriter _reportWriter;
     private readonly ILogger<NormalizeXtreamTask> _logger;
 
     /// <summary>
@@ -17,9 +18,11 @@ public sealed class NormalizeXtreamTask : IScheduledTask, IConfigurableScheduled
     /// </summary>
     public NormalizeXtreamTask(
         LibraryAuditService auditService,
+        AuditReportWriter reportWriter,
         ILogger<NormalizeXtreamTask> logger)
     {
         _auditService = auditService;
+        _reportWriter = reportWriter;
         _logger = logger;
     }
 
@@ -63,6 +66,7 @@ public sealed class NormalizeXtreamTask : IScheduledTask, IConfigurableScheduled
         }
 
         var report = await _auditService.AuditNormalizationAsync(cancellationToken).ConfigureAwait(false);
+        await _reportWriter.WriteNormalizationAsync(report, cancellationToken).ConfigureAwait(false);
         _logger.LogInformation(
             "Xtream normalization audit: sync={SyncIdentity} success={SyncSuccess} scanned={ScannedCount} candidates={CandidateCount} itemUpdates={UpdateCount}",
             report.SyncResult?.Identity,
