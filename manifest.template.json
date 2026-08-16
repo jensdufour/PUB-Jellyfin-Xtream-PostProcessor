@@ -1,0 +1,11 @@
+[
+  {
+    "category": "Metadata",
+    "description": "Audit and post-process Xtream-backed Jellyfin libraries.",
+    "guid": "d9f0f3d1-2bb9-4eed-a96e-5344f4e683a9",
+    "name": "Xtream Post Processor",
+    "overview": "Enrich and normalize Xtream-backed Jellyfin libraries.",
+    "owner": "jensdufour",
+    "versions": []
+  }
+]

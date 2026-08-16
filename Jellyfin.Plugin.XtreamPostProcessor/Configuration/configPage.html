@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>Xtream Post Processor</title>
+</head>
+<body>
+<div id="XtreamPostProcessorConfigPage" data-role="page" class="page type-interior pluginConfigurationPage">
+    <div data-role="content">
+        <div class="content-primary">
+            <form id="XtreamPostProcessorConfigForm">
+                <div class="verticalSection">
+                    <h2 class="sectionTitle">Xtream Post Processor</h2>
+                    <div class="fieldDescription">This release is audit-only. It plans enrichment and normalization but never modifies media or metadata.</div>
+                </div>
+                <div class="checkboxContainer checkboxContainer-withDescription">
+                    <label class="emby-checkbox-label">
+                        <input id="Enabled" type="checkbox" is="emby-checkbox" />
+                        <span>Watch Xtream sync completion</span>
+                    </label>
+                </div>
+                <div class="inputContainer">
+                    <label class="inputLabel inputLabelUnfocused" for="SyncHistoryRelativePath">Sync history path</label>
+                    <input id="SyncHistoryRelativePath" type="text" is="emby-input" />
+                    <div class="fieldDescription">Absolute, or relative to Jellyfin's data directory.</div>
+                </div>
+                <div class="inputContainer">
+                    <label class="inputLabel inputLabelUnfocused" for="LegacyStateRelativePath">Legacy enrichment state path</label>
+                    <input id="LegacyStateRelativePath" type="text" is="emby-input" />
+                </div>
+                <div class="inputContainer">
+                    <label class="inputLabel inputLabelUnfocused" for="XtreamRoot">Xtream media root</label>
+                    <input id="XtreamRoot" type="text" is="emby-input" />
+                </div>
+                <div class="inputContainer">
+                    <label class="inputLabel inputLabelUnfocused" for="FallbackLanguage">Fallback metadata language</label>
+                    <input id="FallbackLanguage" type="text" is="emby-input" />
+                </div>
+                <div class="inputContainer">
+                    <label class="inputLabel inputLabelUnfocused" for="EnrichmentWorkers">Enrichment workers</label>
+                    <input id="EnrichmentWorkers" type="number" is="emby-input" min="1" max="16" />
+                </div>
+                <div class="inputContainer">
+                    <label class="inputLabel inputLabelUnfocused" for="IndexingStableSeconds">Indexing stability window (seconds)</label>
+                    <input id="IndexingStableSeconds" type="number" is="emby-input" min="0" />
+                </div>
+                <div class="inputContainer">
+                    <label class="inputLabel inputLabelUnfocused" for="IndexingTimeoutSeconds">Indexing timeout (seconds)</label>
+                    <input id="IndexingTimeoutSeconds" type="number" is="emby-input" min="1" />
+                </div>
+                <button is="emby-button" type="submit" class="raised button-submit block emby-button">
+                    <span>Save</span>
+                </button>
+            </form>
+        </div>
+    </div>
+    <script type="text/javascript">
+        (function () {
+            const pluginId = 'd9f0f3d1-2bb9-4eed-a96e-5344f4e683a9';
+            const page = document.querySelector('#XtreamPostProcessorConfigPage');
+            page.addEventListener('pageshow', function () {
+                Dashboard.showLoadingMsg();
+                ApiClient.getPluginConfiguration(pluginId).then(function (config) {
+                    document.querySelector('#Enabled').checked = config.Enabled;
+                    document.querySelector('#SyncHistoryRelativePath').value = config.SyncHistoryRelativePath;
+                    document.querySelector('#LegacyStateRelativePath').value = config.LegacyStateRelativePath;
+                    document.querySelector('#XtreamRoot').value = config.XtreamRoot;
+                    document.querySelector('#FallbackLanguage').value = config.FallbackLanguage;
+                    document.querySelector('#EnrichmentWorkers').value = config.EnrichmentWorkers;
+                    document.querySelector('#IndexingStableSeconds').value = config.IndexingStableSeconds;
+                    document.querySelector('#IndexingTimeoutSeconds').value = config.IndexingTimeoutSeconds;
+                    Dashboard.hideLoadingMsg();
+                });
+            });
+            document.querySelector('#XtreamPostProcessorConfigForm').addEventListener('submit', function (event) {
+                Dashboard.showLoadingMsg();
+                ApiClient.getPluginConfiguration(pluginId).then(function (config) {
+                    config.Enabled = document.querySelector('#Enabled').checked;
+                    config.AuditOnly = true;
+                    config.SyncHistoryRelativePath = document.querySelector('#SyncHistoryRelativePath').value;
+                    config.LegacyStateRelativePath = document.querySelector('#LegacyStateRelativePath').value;
+                    config.XtreamRoot = document.querySelector('#XtreamRoot').value;
+                    config.FallbackLanguage = document.querySelector('#FallbackLanguage').value;
+                    config.EnrichmentWorkers = Number(document.querySelector('#EnrichmentWorkers').value);
+                    config.IndexingStableSeconds = Number(document.querySelector('#IndexingStableSeconds').value);
+                    config.IndexingTimeoutSeconds = Number(document.querySelector('#IndexingTimeoutSeconds').value);
+                    ApiClient.updatePluginConfiguration(pluginId, config).then(Dashboard.processPluginConfigurationUpdateResult);
+                });
+                event.preventDefault();
+                return false;
+            });
+        }());
+    </script>
+</div>
+</body>
+</html>

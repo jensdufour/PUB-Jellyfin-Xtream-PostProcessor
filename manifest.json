@@ -1,0 +1,20 @@
+[
+  {
+    "category": "Metadata",
+    "description": "Audit and post-process Xtream-backed Jellyfin libraries.",
+    "guid": "d9f0f3d1-2bb9-4eed-a96e-5344f4e683a9",
+    "name": "Xtream Post Processor",
+    "overview": "Enrich and normalize Xtream-backed Jellyfin libraries.",
+    "owner": "jensdufour",
+    "versions": [
+      {
+        "version": "0.1.0.0",
+        "changelog": "Initial audit-only shadow release with sync watcher and dashboard tasks.",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/jensdufour/PUB-Jellyfin-Xtream-PostProcessor/releases/download/v0.1.0.0/xtream-post-processor_0.1.0.0.zip",
+        "checksum": "04ca6bb2db3fff503a50f7384c941691",
+        "timestamp": "2026-08-16T05:55:45Z"
+      }
+    ]
+  }
+]

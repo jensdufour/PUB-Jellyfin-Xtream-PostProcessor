@@ -1,0 +1,42 @@
+using MediaBrowser.Model.Plugins;
+
+namespace Jellyfin.Plugin.XtreamPostProcessor.Configuration;
+
+/// <summary>
+/// Plugin configuration.
+/// </summary>
+public sealed class PluginConfiguration : BasePluginConfiguration
+{
+    /// <summary>Gets or sets a value indicating whether automatic processing is enabled.</summary>
+    public bool Enabled { get; set; } = true;
+
+    /// <summary>Gets or sets a value indicating whether changes are audit-only.</summary>
+    public bool AuditOnly { get; set; } = true;
+
+    /// <summary>Gets or sets the sync-history path relative to Jellyfin's data directory.</summary>
+    public string SyncHistoryRelativePath { get; set; } = "xtream-library/sync_history.json";
+
+    /// <summary>Gets or sets the legacy enrichment-state path relative to Jellyfin's data directory.</summary>
+    public string LegacyStateRelativePath { get; set; } = "xtream-metadata-enrichment.json";
+
+    /// <summary>Gets or sets the Xtream media root.</summary>
+    public string XtreamRoot { get; set; } = "/data/media/xtream";
+
+    /// <summary>Gets or sets the fallback metadata language.</summary>
+    public string FallbackLanguage { get; set; } = "nl";
+
+    /// <summary>Gets or sets the maximum enrichment concurrency.</summary>
+    public int EnrichmentWorkers { get; set; } = 6;
+
+    /// <summary>Gets or sets a value indicating whether retryable failures are included.</summary>
+    public bool RetryFailed { get; set; } = true;
+
+    /// <summary>Gets or sets the file-watcher debounce interval in seconds.</summary>
+    public int WatchDebounceSeconds { get; set; } = 2;
+
+    /// <summary>Gets or sets the indexing stability window in seconds.</summary>
+    public int IndexingStableSeconds { get; set; } = 180;
+
+    /// <summary>Gets or sets the indexing timeout in seconds.</summary>
+    public int IndexingTimeoutSeconds { get; set; } = 5400;
+}
