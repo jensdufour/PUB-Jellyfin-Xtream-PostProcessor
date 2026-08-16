@@ -50,8 +50,19 @@
                     <input id="XtreamRoot" type="text" is="emby-input" />
                 </div>
                 <div class="inputContainer">
-                    <label class="inputLabel inputLabelUnfocused" for="FallbackLanguage">Fallback metadata language</label>
-                    <input id="FallbackLanguage" type="text" is="emby-input" />
+                    <label class="inputLabel inputLabelUnfocused" for="FallbackLanguages">Fallback metadata languages</label>
+                    <input id="FallbackLanguages" type="text" is="emby-input" />
+                    <div class="fieldDescription">Comma-separated language codes, tried in order.</div>
+                </div>
+                <div class="inputContainer">
+                    <label class="inputLabel inputLabelUnfocused" for="WriteBatchSize">Write batch size</label>
+                    <input id="WriteBatchSize" type="number" is="emby-input" min="0" />
+                    <div class="fieldDescription">Maximum items per run; zero processes all candidates.</div>
+                </div>
+                <div class="inputContainer">
+                    <label class="inputLabel inputLabelUnfocused" for="WriteItemId">Write item ID</label>
+                    <input id="WriteItemId" type="text" is="emby-input" />
+                    <div class="fieldDescription">Optional Jellyfin item ID to process exclusively.</div>
                 </div>
                 <div class="inputContainer">
                     <label class="inputLabel inputLabelUnfocused" for="EnrichmentWorkers">Enrichment workers</label>
@@ -89,7 +100,9 @@
                     document.querySelector('#LegacyStateRelativePath').value = config.LegacyStateRelativePath;
                     document.querySelector('#StateRelativePath').value = config.StateRelativePath;
                     document.querySelector('#XtreamRoot').value = config.XtreamRoot;
-                    document.querySelector('#FallbackLanguage').value = config.FallbackLanguage;
+                    document.querySelector('#FallbackLanguages').value = config.FallbackLanguages;
+                    document.querySelector('#WriteBatchSize').value = config.WriteBatchSize;
+                    document.querySelector('#WriteItemId').value = config.WriteItemId || '';
                     document.querySelector('#EnrichmentWorkers').value = config.EnrichmentWorkers;
                     document.querySelector('#IndexingStableSeconds').value = config.IndexingStableSeconds;
                     document.querySelector('#IndexingTimeoutSeconds').value = config.IndexingTimeoutSeconds;
@@ -107,7 +120,9 @@
                     config.LegacyStateRelativePath = document.querySelector('#LegacyStateRelativePath').value;
                     config.StateRelativePath = document.querySelector('#StateRelativePath').value;
                     config.XtreamRoot = document.querySelector('#XtreamRoot').value;
-                    config.FallbackLanguage = document.querySelector('#FallbackLanguage').value;
+                    config.FallbackLanguages = document.querySelector('#FallbackLanguages').value;
+                    config.WriteBatchSize = Number(document.querySelector('#WriteBatchSize').value);
+                    config.WriteItemId = document.querySelector('#WriteItemId').value;
                     config.EnrichmentWorkers = Number(document.querySelector('#EnrichmentWorkers').value);
                     config.IndexingStableSeconds = Number(document.querySelector('#IndexingStableSeconds').value);
                     config.IndexingTimeoutSeconds = Number(document.querySelector('#IndexingTimeoutSeconds').value);

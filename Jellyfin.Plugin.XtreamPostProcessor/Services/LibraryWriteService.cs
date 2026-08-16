@@ -5,7 +5,7 @@ using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Providers;
-using MediaBrowser.Model.IO;
+using MediaBrowser.Model.Entities;
 using MediaBrowser.Model.Providers;
 
 namespace Jellyfin.Plugin.XtreamPostProcessor.Services;
@@ -17,24 +17,21 @@ public sealed class LibraryWriteService
 {
     private readonly ILibraryManager _libraryManager;
     private readonly IProviderManager _providerManager;
-    private readonly IFileSystem _fileSystem;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="LibraryWriteService"/> class.
     /// </summary>
     public LibraryWriteService(
         ILibraryManager libraryManager,
-        IProviderManager providerManager,
-        IFileSystem fileSystem)
+        IProviderManager providerManager)
     {
         _libraryManager = libraryManager;
         _providerManager = providerManager;
-        _fileSystem = fileSystem;
     }
 
-    internal async Task<bool> ApplyEnrichmentAsync(
+    internal async Task<EnrichmentWriteResult> ApplyEnrichmentAsync(
         EnrichmentPlanItem plan,
-        string fallbackLanguage,
+        string fallbackLanguages,
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -44,71 +41,94 @@ public sealed class LibraryWriteService
         }
 
         var item = GetLiveItem(plan.Item);
-        if (!string.IsNullOrWhiteSpace(item.Overview)
-            && !item.Name.Contains("[tmdbid-", StringComparison.OrdinalIgnoreCase))
+        if (!string.IsNullOrWhiteSpace(item.Overview))
         {
-            return true;
+            return new EnrichmentWriteResult("enriched", true, false);
         }
 
-        var results = item switch
+        if (item.IsLocked || item.LockedFields.Contains(MetadataField.Overview))
         {
-            Movie => await SearchAsync<Movie, MovieInfo>(new MovieInfo(), plan, null, cancellationToken).ConfigureAwait(false),
-            Series => await SearchAsync<Series, SeriesInfo>(new SeriesInfo(), plan, null, cancellationToken).ConfigureAwait(false),
-            _ => throw new InvalidOperationException($"Unsupported item type {item.GetType().FullName}")
-        };
-        var matches = results
-            .Where(result => string.Equals(
-                ProviderId(result.ProviderIds, "Tmdb"),
-                plan.Item.TmdbId,
-                StringComparison.Ordinal))
-            .ToArray();
-        if (matches.Length != 1)
-        {
-            throw new InvalidOperationException(
-                $"Expected one exact TMDB {plan.Item.TmdbId} result, got {matches.Length}");
+            return new EnrichmentWriteResult("overview-locked", false, false, "Overview is locked in Jellyfin");
         }
 
-        cancellationToken.ThrowIfCancellationRequested();
-        item.ProviderIds = matches[0].ProviderIds;
-        await _providerManager.RefreshFullItem(
-            item,
-            new MetadataRefreshOptions(new DirectoryService(_fileSystem))
-            {
-                MetadataRefreshMode = MetadataRefreshMode.FullRefresh,
-                ImageRefreshMode = MetadataRefreshMode.FullRefresh,
-                ReplaceAllMetadata = true,
-                ReplaceAllImages = false,
-                SearchResult = matches[0],
-                RemoveOldMetadata = true
-            },
-            CancellationToken.None).ConfigureAwait(false);
-
-        item = GetLiveItem(plan.Item);
-        if (string.IsNullOrWhiteSpace(item.Overview) && !string.IsNullOrWhiteSpace(fallbackLanguage))
+        var languages = ParseFallbackLanguages(fallbackLanguages);
+        if (languages.Count == 0)
         {
-            var fallbackResults = item switch
+            throw new InvalidOperationException("At least one fallback metadata language is required");
+        }
+
+        var exactMatchSeen = false;
+        var exactMatchMissing = false;
+        foreach (var language in languages)
+        {
+            var results = item switch
             {
-                Movie => await SearchAsync<Movie, MovieInfo>(new MovieInfo(), plan, fallbackLanguage, CancellationToken.None).ConfigureAwait(false),
-                Series => await SearchAsync<Series, SeriesInfo>(new SeriesInfo(), plan, fallbackLanguage, CancellationToken.None).ConfigureAwait(false),
-                _ => []
+                Movie => await SearchAsync<Movie, MovieInfo>(new MovieInfo(), plan, language, cancellationToken).ConfigureAwait(false),
+                Series => await SearchAsync<Series, SeriesInfo>(new SeriesInfo(), plan, language, cancellationToken).ConfigureAwait(false),
+                _ => throw new InvalidOperationException($"Unsupported item type {item.GetType().FullName}")
             };
-            var fallbackMatches = fallbackResults
+            cancellationToken.ThrowIfCancellationRequested();
+            var matches = results
                 .Where(result => string.Equals(
                     ProviderId(result.ProviderIds, "Tmdb"),
                     plan.Item.TmdbId,
-                    StringComparison.Ordinal)
-                    && !string.IsNullOrWhiteSpace(result.Overview))
+                    StringComparison.Ordinal))
                 .ToArray();
-            if (fallbackMatches.Length == 1)
+            if (matches.Length > 1)
             {
-                item.Overview = fallbackMatches[0].Overview;
-                await item.UpdateToRepositoryAsync(ItemUpdateType.MetadataEdit, CancellationToken.None).ConfigureAwait(false);
+                throw new InvalidOperationException(
+                    $"Expected at most one exact TMDB {plan.Item.TmdbId} result, got {matches.Length}");
             }
+
+            if (matches.Length == 0)
+            {
+                exactMatchMissing = true;
+                continue;
+            }
+
+            exactMatchSeen = true;
+            if (string.IsNullOrWhiteSpace(matches[0].Overview))
+            {
+                continue;
+            }
+
+            cancellationToken.ThrowIfCancellationRequested();
+            item = GetLiveItem(plan.Item);
+            if (!string.IsNullOrWhiteSpace(item.Overview))
+            {
+                return new EnrichmentWriteResult("enriched", true, false);
+            }
+
+            if (item.IsLocked || item.LockedFields.Contains(MetadataField.Overview))
+            {
+                return new EnrichmentWriteResult("overview-locked", false, false, "Overview was locked during lookup");
+            }
+
+            item.Overview = matches[0].Overview;
+            await item.UpdateToRepositoryAsync(ItemUpdateType.MetadataImport, CancellationToken.None).ConfigureAwait(false);
+            return new EnrichmentWriteResult("enriched", true, false);
         }
 
-        item = GetLiveItem(plan.Item);
-        return !string.IsNullOrWhiteSpace(item.Overview)
-            && !item.Name.Contains("[tmdbid-", StringComparison.OrdinalIgnoreCase);
+        if (exactMatchSeen && !exactMatchMissing)
+        {
+            return new EnrichmentWriteResult(
+                "no-overview-available",
+                false,
+                true,
+                $"TMDB {plan.Item.TmdbId} has no overview in: {string.Join(", ", languages)}");
+        }
+
+        if (exactMatchSeen)
+        {
+            throw new InvalidOperationException(
+                $"TMDB {plan.Item.TmdbId} returned inconsistent exact results across languages");
+        }
+
+        return new EnrichmentWriteResult(
+            "provider-id-unavailable",
+            false,
+            false,
+            $"TMDB {plan.Item.TmdbId} has no exact {item.GetType().Name} result");
     }
 
     internal async Task<bool> ApplyTitleAsync(
@@ -117,6 +137,11 @@ public sealed class LibraryWriteService
     {
         cancellationToken.ThrowIfCancellationRequested();
         var item = GetLiveItem(plan.Item);
+        if (item.IsLocked || item.LockedFields.Contains(MetadataField.Name))
+        {
+            return false;
+        }
+
         if (!TitleNormalizer.HasProviderPrefix(plan.SourceName)
             && !plan.SourceName.Contains("[tmdbid-0]", StringComparison.OrdinalIgnoreCase))
         {
@@ -135,7 +160,8 @@ public sealed class LibraryWriteService
         }
 
         item.Name = decision.Title;
-        await item.UpdateToRepositoryAsync(ItemUpdateType.MetadataEdit, CancellationToken.None).ConfigureAwait(false);
+        await _providerManager.SaveMetadataAsync(item, ItemUpdateType.MetadataEdit).ConfigureAwait(false);
+        await item.UpdateToRepositoryAsync(ItemUpdateType.MetadataImport, CancellationToken.None).ConfigureAwait(false);
         return true;
     }
 
@@ -165,6 +191,14 @@ public sealed class LibraryWriteService
         return results.ToArray();
     }
 
+    internal static IReadOnlyList<string> ParseFallbackLanguages(string value) => value
+        .Split([',', ';'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+        .Distinct(StringComparer.OrdinalIgnoreCase)
+        .ToArray();
+
+    internal static string LookupPolicy(string value) =>
+        string.Join(",", ParseFallbackLanguages(value).Select(language => language.ToLowerInvariant()));
+
     private BaseItem GetLiveItem(LibraryItemSnapshot snapshot)
     {
         var item = _libraryManager.GetItemById(Guid.Parse(snapshot.Id))
@@ -181,3 +215,9 @@ public sealed class LibraryWriteService
     private static string? ProviderId(IReadOnlyDictionary<string, string> providerIds, string provider) =>
         providerIds.FirstOrDefault(pair => string.Equals(pair.Key, provider, StringComparison.OrdinalIgnoreCase)).Value;
 }
+
+internal sealed record EnrichmentWriteResult(
+    string Status,
+    bool Succeeded,
+    bool Terminal,
+    string? Reason = null);

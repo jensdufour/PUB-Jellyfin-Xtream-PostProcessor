@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.0.1
+
+- Retrieve exact-TMDB overviews through an ordered Jellyfin provider-language chain.
+- Persist only Overview for enrichment; do not run a broad metadata or image refresh.
+- Keep unavailable provider IDs retryable and record records without any synopsis as terminal.
+- Preserve existing and locked metadata.
+- Add optional exact-item and batch controls for guarded write proofs.
+
 ## 0.2.0.0
 
 - Add opt-in exact-TMDB enrichment and title normalization through supported Jellyfin interfaces.

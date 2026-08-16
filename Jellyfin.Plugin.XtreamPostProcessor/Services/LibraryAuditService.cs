@@ -51,7 +51,8 @@ public sealed class LibraryAuditService
         var state = await _stateReader.ReadAsync(
             statePath,
             cancellationToken).ConfigureAwait(false);
-        var candidates = CandidatePlanner.PlanEnrichment(items, state, configuration.RetryFailed);
+        var lookupPolicy = LibraryWriteService.LookupPolicy(configuration.FallbackLanguages);
+        var candidates = CandidatePlanner.PlanEnrichment(items, state, configuration.RetryFailed, lookupPolicy);
         return new EnrichmentAuditReport(sync, items.Count, candidates);
     }
 

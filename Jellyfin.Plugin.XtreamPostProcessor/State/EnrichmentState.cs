@@ -33,4 +33,7 @@ internal sealed class EnrichmentStateItem
 
     [JsonPropertyName("reason")]
     public string? Reason { get; init; }
+
+    [JsonPropertyName("lookupPolicy")]
+    public string? LookupPolicy { get; init; }
 }

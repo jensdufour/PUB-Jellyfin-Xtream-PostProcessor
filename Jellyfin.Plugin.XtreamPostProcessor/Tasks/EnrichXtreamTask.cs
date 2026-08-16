@@ -75,6 +75,7 @@ public sealed class EnrichXtreamTask : IScheduledTask, IConfigurableScheduledTas
         var completedCount = 0;
         var failureCount = 0;
         var terminalCount = 0;
+        var retryableCount = 0;
         if (writeEnabled)
         {
             var expectedSyncIdentity = report.SyncResult!.Identity;
@@ -101,8 +102,35 @@ public sealed class EnrichXtreamTask : IScheduledTask, IConfigurableScheduledTas
                 var state = await _stateReader.ReadAsync(sourcePath, cancellationToken).ConfigureAwait(false);
                 using var stateLock = new SemaphoreSlim(1, 1);
                 var processedCount = 0;
+                if (configuration.WriteBatchSize < 0)
+                {
+                    throw new InvalidOperationException("Write batch size cannot be negative");
+                }
+
+                IReadOnlyList<Planning.EnrichmentPlanItem> candidates = report.Candidates;
+                if (!string.IsNullOrWhiteSpace(configuration.WriteItemId))
+                {
+                    if (!Guid.TryParse(configuration.WriteItemId, out var itemId))
+                    {
+                        throw new InvalidOperationException("Write item ID is not a valid GUID");
+                    }
+
+                    candidates = report.Candidates
+                        .Where(candidate => Guid.Parse(candidate.Item.Id) == itemId)
+                        .ToArray();
+                    if (candidates.Count == 0)
+                    {
+                        _logger.LogInformation("Write item {ItemId} is no longer an enrichment candidate", itemId);
+                    }
+                }
+
+                if (configuration.WriteBatchSize > 0)
+                {
+                    candidates = candidates.Take(configuration.WriteBatchSize).ToArray();
+                }
+
                 await Parallel.ForEachAsync(
-                    report.Candidates,
+                    candidates,
                     new ParallelOptions
                     {
                         CancellationToken = cancellationToken,
@@ -128,16 +156,31 @@ public sealed class EnrichXtreamTask : IScheduledTask, IConfigurableScheduledTas
                         {
                             try
                             {
-                                var enriched = await _writeService.ApplyEnrichmentAsync(
+                                var result = await _writeService.ApplyEnrichmentAsync(
                                     candidate,
-                                    configuration.FallbackLanguage,
+                                    configuration.FallbackLanguages,
                                     token).ConfigureAwait(false);
-                                Interlocked.Increment(ref completedCount);
+                                if (result.Succeeded)
+                                {
+                                    Interlocked.Increment(ref completedCount);
+                                }
+                                else if (result.Terminal)
+                                {
+                                    Interlocked.Increment(ref terminalCount);
+                                }
+                                else
+                                {
+                                    Interlocked.Increment(ref retryableCount);
+                                }
+
                                 outcome = new EnrichmentStateItem
                                 {
                                     Fingerprint = candidate.Fingerprint,
-                                    Status = enriched ? "enriched" : "refreshed-no-details",
-                                    AttemptedUtc = DateTimeOffset.UtcNow
+                                    Status = result.Status,
+                                    AttemptedUtc = DateTimeOffset.UtcNow,
+                                    Terminal = result.Terminal,
+                                    Reason = result.Reason,
+                                    LookupPolicy = LibraryWriteService.LookupPolicy(configuration.FallbackLanguages)
                                 };
                             }
                             catch (Exception exception) when (exception is not OperationCanceledException)
@@ -167,7 +210,7 @@ public sealed class EnrichXtreamTask : IScheduledTask, IConfigurableScheduledTas
                             stateLock.Release();
                         }
 
-                        progress.Report(100d * Interlocked.Increment(ref processedCount) / report.Candidates.Count);
+                        progress.Report(100d * Interlocked.Increment(ref processedCount) / candidates.Count);
                     }).ConfigureAwait(false);
             }
             finally
@@ -182,16 +225,18 @@ public sealed class EnrichXtreamTask : IScheduledTask, IConfigurableScheduledTas
             completedCount,
             failureCount,
             terminalCount,
+            retryableCount,
             cancellationToken).ConfigureAwait(false);
         _logger.LogInformation(
-            "Xtream enrichment audit: sync={SyncIdentity} success={SyncSuccess} scanned={ScannedCount} candidates={CandidateCount} completed={CompletedCount} failed={FailureCount} terminal={TerminalCount}",
+            "Xtream enrichment audit: sync={SyncIdentity} success={SyncSuccess} scanned={ScannedCount} candidates={CandidateCount} completed={CompletedCount} failed={FailureCount} terminal={TerminalCount} retryable={RetryableCount}",
             report.SyncResult?.Identity,
             report.SyncResult?.Success,
             report.ScannedItemCount,
             report.Candidates.Count,
             completedCount,
             failureCount,
-            terminalCount);
+            terminalCount,
+            retryableCount);
         progress.Report(100);
 
         if (failureCount > 0)
@@ -199,7 +244,9 @@ public sealed class EnrichXtreamTask : IScheduledTask, IConfigurableScheduledTas
             throw new InvalidOperationException($"Failed to enrich {failureCount} Xtream items");
         }
 
-        if (report.SyncResult?.Success == true)
+        if (report.SyncResult?.Success == true
+            && string.IsNullOrWhiteSpace(configuration.WriteItemId)
+            && configuration.WriteBatchSize == 0)
         {
             _deferredTasks.QueueNormalization();
         }

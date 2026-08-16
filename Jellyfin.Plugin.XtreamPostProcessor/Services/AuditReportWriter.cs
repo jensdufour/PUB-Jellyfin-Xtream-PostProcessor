@@ -30,6 +30,7 @@ public sealed class AuditReportWriter
         int completedCount,
         int failureCount,
         int terminalCount,
+        int retryableCount,
         CancellationToken cancellationToken) => WriteAsync(
             "last-enrichment-audit.json",
             new
@@ -44,6 +45,7 @@ public sealed class AuditReportWriter
                 completedCount,
                 failureCount,
                 terminalCount,
+                retryableCount,
                 candidates = report.Candidates.Select(candidate => new
                 {
                     id = candidate.Item.Id,

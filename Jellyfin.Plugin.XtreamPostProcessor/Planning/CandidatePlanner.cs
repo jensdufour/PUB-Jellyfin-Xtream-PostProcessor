@@ -1,3 +1,4 @@
+using System.Globalization;
 using Jellyfin.Plugin.XtreamPostProcessor.Normalization;
 using Jellyfin.Plugin.XtreamPostProcessor.State;
 
@@ -8,19 +9,33 @@ internal static partial class CandidatePlanner
     public static IReadOnlyList<EnrichmentPlanItem> PlanEnrichment(
         IEnumerable<LibraryItemSnapshot> items,
         EnrichmentState state,
-        bool retryFailed)
+        bool retryFailed,
+        string lookupPolicy)
     {
         return items
             .Where(item => !string.IsNullOrWhiteSpace(item.TmdbId))
-            .Where(item => string.IsNullOrWhiteSpace(item.Overview)
-                || item.Name.Contains("[tmdbid-", StringComparison.OrdinalIgnoreCase))
+            .Where(item => string.IsNullOrWhiteSpace(item.Overview))
             .Select(item =>
             {
                 var fingerprint = $"{item.TypeName}|tmdb:{item.TmdbId}|{item.Path}";
-                return new EnrichmentPlanItem(item, fingerprint, item.TmdbId is "0");
+                var invalidProviderId = !int.TryParse(
+                    item.TmdbId,
+                    NumberStyles.None,
+                    CultureInfo.InvariantCulture,
+                    out var providerId)
+                    || providerId <= 0
+                    || !string.Equals(
+                        item.TmdbId,
+                        providerId.ToString(CultureInfo.InvariantCulture),
+                        StringComparison.Ordinal);
+                return new EnrichmentPlanItem(item, fingerprint, invalidProviderId);
             })
-            .Where(candidate => ShouldProcess(candidate, state, retryFailed))
-            .OrderByDescending(candidate => candidate.Item.DateCreated)
+            .Where(candidate => ShouldProcess(candidate, state, retryFailed, lookupPolicy))
+            .OrderBy(candidate => state.Items.ContainsKey(candidate.Item.Id))
+            .ThenBy(candidate => state.Items.TryGetValue(candidate.Item.Id, out var previous)
+                ? previous.AttemptedUtc ?? DateTimeOffset.MinValue
+                : DateTimeOffset.MinValue)
+            .ThenByDescending(candidate => candidate.Item.DateCreated)
             .ThenByDescending(candidate => candidate.Item.Name, StringComparer.Ordinal)
             .ThenByDescending(candidate => candidate.Item.Id, StringComparer.Ordinal)
             .ToArray();
@@ -57,7 +72,8 @@ internal static partial class CandidatePlanner
     private static bool ShouldProcess(
         EnrichmentPlanItem candidate,
         EnrichmentState state,
-        bool retryFailed)
+        bool retryFailed,
+        string lookupPolicy)
     {
         if (!state.Items.TryGetValue(candidate.Item.Id, out var previous)
             || !string.Equals(previous.Fingerprint, candidate.Fingerprint, StringComparison.Ordinal))
@@ -65,7 +81,9 @@ internal static partial class CandidatePlanner
             return true;
         }
 
-        return retryFailed && previous.Status is "failed" or "refreshed-no-details";
+        return (previous.Status == "no-overview-available"
+                && !string.Equals(previous.LookupPolicy, lookupPolicy, StringComparison.Ordinal))
+            || (retryFailed && previous.Status is "failed" or "refreshed-no-details" or "provider-id-unavailable" or "overview-locked");
     }
 
     private static string SourceName(LibraryItemSnapshot item)

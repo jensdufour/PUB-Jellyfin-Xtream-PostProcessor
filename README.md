@@ -40,13 +40,17 @@ absolute paths. Defaults match a standard Xtream Library installation:
 | Legacy state | `xtream-metadata-enrichment.json` |
 | Plugin state | `xtream-post-processor/enrichment-state.json` |
 | Media root | `/data/media/xtream` |
-| Fallback language | `nl` |
+| Fallback languages | `nl,en,sv,da,cs` |
+| Write batch size | `0` (all candidates) |
+| Write item ID | empty |
 | Audit only | `true` |
 
 ## Architecture
 
 - `XtreamSyncWatcher` debounces sync-history changes and queues enrichment.
 - `EnrichXtreamTask` audits or applies exact-TMDB enrichment candidates.
+- Enrichment tries configured languages in order and changes only a missing Overview.
+- Unavailable IDs remain retryable; records with no synopsis in any configured language are terminal.
 - `NormalizeXtreamTask` audits or applies title changes after enrichment succeeds.
 - `ILibraryManager` supplies Movies and Series; no direct SQLite access is used.
 - Write mode runs only after a successful latest sync and preserves images.
