@@ -68,10 +68,11 @@ dotnet build --configuration Release
 dotnet test --configuration Release --no-build
 ```
 
-## Migration Status
+## Production Status
 
-The production Python/systemd pipeline remains authoritative until a guarded
-write-mode run and rollback are proven on the active server.
+Version `0.2.0.1` replaced the migration-era Python/systemd pipeline after
+one-item, full controlled, and official scheduled-sync proofs on Jellyfin
+`10.11.11`. Audit-only remains the installation default for new servers.
 
 ## License
 
