@@ -1,7 +1,7 @@
 ---
 name: "Xtream Post Processor"
 guid: "d9f0f3d1-2bb9-4eed-a96e-5344f4e683a9"
-version: "0.1.0.0"
+version: "0.1.0.1"
 targetAbi: "10.11.0.0"
 framework: "net9.0"
 overview: "Enrich and normalize Xtream-backed Jellyfin libraries."

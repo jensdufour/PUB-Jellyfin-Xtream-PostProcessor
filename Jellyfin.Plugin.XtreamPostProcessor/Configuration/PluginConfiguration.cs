@@ -19,6 +19,9 @@ public sealed class PluginConfiguration : BasePluginConfiguration
     /// <summary>Gets or sets the legacy enrichment-state path relative to Jellyfin's data directory.</summary>
     public string LegacyStateRelativePath { get; set; } = "xtream-metadata-enrichment.json";
 
+    /// <summary>Gets or sets the plugin-owned enrichment-state path relative to Jellyfin's data directory.</summary>
+    public string StateRelativePath { get; set; } = "xtream-post-processor/enrichment-state.json";
+
     /// <summary>Gets or sets the Xtream media root.</summary>
     public string XtreamRoot { get; set; } = "/data/media/xtream";
 

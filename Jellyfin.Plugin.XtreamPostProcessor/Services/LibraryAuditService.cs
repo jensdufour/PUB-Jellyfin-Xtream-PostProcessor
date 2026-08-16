@@ -40,8 +40,14 @@ public sealed class LibraryAuditService
         var configuration = Configuration();
         var sync = await ReadLatestSyncAsync(configuration, cancellationToken).ConfigureAwait(false);
         var items = ReadItems(configuration);
+        var statePath = ResolveDataPath(configuration.StateRelativePath);
+        if (!File.Exists(statePath))
+        {
+            statePath = ResolveDataPath(configuration.LegacyStateRelativePath);
+        }
+
         var state = await _stateReader.ReadAsync(
-            ResolveDataPath(configuration.LegacyStateRelativePath),
+            statePath,
             cancellationToken).ConfigureAwait(false);
         var candidates = CandidatePlanner.PlanEnrichment(items, state, configuration.RetryFailed);
         return new EnrichmentAuditReport(sync, items.Count, candidates);

@@ -37,6 +37,7 @@ absolute paths. Defaults match a standard Xtream Library installation:
 | --- | --- |
 | Sync history | `xtream-library/sync_history.json` |
 | Legacy state | `xtream-metadata-enrichment.json` |
+| Plugin state | `xtream-post-processor/enrichment-state.json` |
 | Media root | `/data/media/xtream` |
 | Fallback language | `nl` |
 | Audit only | Always enabled in `0.1.x` |
