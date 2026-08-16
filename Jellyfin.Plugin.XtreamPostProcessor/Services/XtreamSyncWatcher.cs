@@ -116,7 +116,7 @@ internal sealed class XtreamSyncWatcher : IHostedService, IDisposable
 
             _lastQueuedIdentity = result.Identity;
             _logger.LogInformation("Queuing Xtream enrichment audit for sync {SyncIdentity}", result.Identity);
-            _taskManager.QueueIfNotRunning<EnrichXtreamTask>();
+            _taskManager.QueueScheduledTask<EnrichXtreamTask>(new TaskOptions());
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {

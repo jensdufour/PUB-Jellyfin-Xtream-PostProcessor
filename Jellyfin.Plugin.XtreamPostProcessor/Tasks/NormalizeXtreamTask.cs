@@ -11,6 +11,7 @@ public sealed class NormalizeXtreamTask : IScheduledTask, IConfigurableScheduled
 {
     private readonly LibraryAuditService _auditService;
     private readonly AuditReportWriter _reportWriter;
+    private readonly LibraryWriteService _writeService;
     private readonly ILogger<NormalizeXtreamTask> _logger;
 
     /// <summary>
@@ -19,21 +20,23 @@ public sealed class NormalizeXtreamTask : IScheduledTask, IConfigurableScheduled
     public NormalizeXtreamTask(
         LibraryAuditService auditService,
         AuditReportWriter reportWriter,
+        LibraryWriteService writeService,
         ILogger<NormalizeXtreamTask> logger)
     {
         _auditService = auditService;
         _reportWriter = reportWriter;
+        _writeService = writeService;
         _logger = logger;
     }
 
     /// <inheritdoc />
-    public string Name => "Audit Xtream Title Normalization";
+    public string Name => "Process Xtream Title Normalization";
 
     /// <inheritdoc />
     public string Key => "XtreamPostProcessorNormalize";
 
     /// <inheritdoc />
-    public string Description => "Plans display-title and NFO normalization for Xtream items.";
+    public string Description => "Audits or applies display-title and NFO normalization for Xtream items.";
 
     /// <inheritdoc />
     public string Category => "Xtream Post Processor";
@@ -60,20 +63,77 @@ public sealed class NormalizeXtreamTask : IScheduledTask, IConfigurableScheduled
             return;
         }
 
-        if (!configuration.AuditOnly)
+        var report = await _auditService.AuditNormalizationAsync(cancellationToken).ConfigureAwait(false);
+        var writeEnabled = !configuration.AuditOnly && report.SyncResult?.Success == true;
+        var appliedCount = 0;
+        var failureCount = 0;
+        if (writeEnabled)
         {
-            throw new InvalidOperationException("Write mode is not available in this shadow release");
+            var expectedSyncIdentity = report.SyncResult!.Identity;
+            var processingLock = await CrossProcessFileLock.AcquireAsync(
+                _auditService.ResolveProcessingLockPath(),
+                cancellationToken).ConfigureAwait(false);
+            try
+            {
+                await _auditService.WaitForIndexingAsync(configuration, report.SyncResult!, cancellationToken).ConfigureAwait(false);
+                report = await _auditService.AuditNormalizationAsync(cancellationToken).ConfigureAwait(false);
+                if (report.SyncResult?.Success != true)
+                {
+                    throw new InvalidOperationException("Latest Xtream synchronization is not successful");
+                }
+
+                if (!string.Equals(report.SyncResult.Identity, expectedSyncIdentity, StringComparison.Ordinal))
+                {
+                    throw new InvalidOperationException("Latest Xtream synchronization changed after indexing stabilized");
+                }
+
+                var updates = report.Candidates.Where(candidate => candidate.NeedsItemUpdate).ToArray();
+                var processedCount = 0;
+                foreach (var candidate in updates)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    try
+                    {
+                        if (await _writeService.ApplyTitleAsync(candidate, cancellationToken).ConfigureAwait(false))
+                        {
+                            appliedCount++;
+                        }
+                    }
+                    catch (Exception exception) when (exception is not OperationCanceledException)
+                    {
+                        failureCount++;
+                        _logger.LogError(exception, "Failed to normalize Xtream item {ItemId}", candidate.Item.Id);
+                    }
+
+                    progress.Report(100d * ++processedCount / updates.Length);
+                }
+            }
+            finally
+            {
+                processingLock.Dispose();
+            }
         }
 
-        var report = await _auditService.AuditNormalizationAsync(cancellationToken).ConfigureAwait(false);
-        await _reportWriter.WriteNormalizationAsync(report, cancellationToken).ConfigureAwait(false);
+        await _reportWriter.WriteNormalizationAsync(
+            report,
+            writeEnabled,
+            appliedCount,
+            failureCount,
+            cancellationToken).ConfigureAwait(false);
         _logger.LogInformation(
-            "Xtream normalization audit: sync={SyncIdentity} success={SyncSuccess} scanned={ScannedCount} candidates={CandidateCount} itemUpdates={UpdateCount}",
+            "Xtream normalization audit: sync={SyncIdentity} success={SyncSuccess} scanned={ScannedCount} candidates={CandidateCount} itemUpdates={UpdateCount} applied={AppliedCount} failed={FailureCount}",
             report.SyncResult?.Identity,
             report.SyncResult?.Success,
             report.ScannedItemCount,
             report.Candidates.Count,
-            report.Candidates.Count(candidate => candidate.NeedsItemUpdate));
+            report.Candidates.Count(candidate => candidate.NeedsItemUpdate),
+            appliedCount,
+            failureCount);
         progress.Report(100);
+
+        if (failureCount > 0)
+        {
+            throw new InvalidOperationException($"Failed to normalize {failureCount} Xtream items");
+        }
     }
 }

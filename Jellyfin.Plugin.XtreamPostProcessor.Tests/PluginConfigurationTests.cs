@@ -14,5 +14,6 @@ public sealed class PluginConfigurationTests
         Assert.Equal("xtream-library/sync_history.json", configuration.SyncHistoryRelativePath);
         Assert.Equal("xtream-post-processor/enrichment-state.json", configuration.StateRelativePath);
         Assert.Equal(6, configuration.EnrichmentWorkers);
+        Assert.Equal(100, configuration.MaxUnindexedChangedRoots);
     }
 }

@@ -42,4 +42,7 @@ public sealed class PluginConfiguration : BasePluginConfiguration
 
     /// <summary>Gets or sets the indexing timeout in seconds.</summary>
     public int IndexingTimeoutSeconds { get; set; } = 5400;
+
+    /// <summary>Gets or sets the maximum changed source roots not represented in Jellyfin.</summary>
+    public int MaxUnindexedChangedRoots { get; set; } = 100;
 }

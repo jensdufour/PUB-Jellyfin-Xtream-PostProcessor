@@ -9,4 +9,5 @@ internal sealed record LibraryItemSnapshot(
     string? Overview,
     string? TmdbId,
     DateTime DateCreated,
-    bool IsSeries);
+    bool IsSeries,
+    DateTime DateLastRefreshed = default);

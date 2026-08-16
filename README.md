@@ -4,16 +4,16 @@ Portable Jellyfin plugin that watches Xtream Library synchronization and exposes
 separate metadata-enrichment and title-normalization tasks in the Jellyfin
 dashboard.
 
-> Version `0.1.x` is audit-only. It computes and logs the same candidate plans as
-> the established Python pipeline but never writes metadata or media files.
+Audit-only is the default. Write mode uses Jellyfin's supported provider,
+library, and metadata-saver interfaces; it never modifies media files.
 
 ## Features
 
 - Cross-platform `FileSystemWatcher` for `xtream-library/sync_history.json`.
-- Dashboard tasks for enrichment and normalization audits.
+- Dashboard tasks for enrichment and normalization audits or writes.
 - Detailed audit JSON under Jellyfin's `data/xtream-post-processor` directory.
 - Timestamp-based sync selection that covers manual and scheduled Xtream runs.
-- Compatible reads of the legacy `xtream-metadata-enrichment.json` state.
+- Compatible reads of the legacy state and atomic plugin-owned checkpoints.
 - Provider-prefix, metadata-ID, year/country, and known-series title rules.
 - No title-specific media handling or Futurama special case.
 - Safe default: automatic watcher enabled, writes disabled.
@@ -41,15 +41,18 @@ absolute paths. Defaults match a standard Xtream Library installation:
 | Plugin state | `xtream-post-processor/enrichment-state.json` |
 | Media root | `/data/media/xtream` |
 | Fallback language | `nl` |
-| Audit only | Always enabled in `0.1.x` |
+| Audit only | `true` |
 
 ## Architecture
 
 - `XtreamSyncWatcher` debounces sync-history changes and queues enrichment.
-- `EnrichXtreamTask` audits exact-TMDB enrichment candidates.
-- `NormalizeXtreamTask` audits title changes after enrichment succeeds.
+- `EnrichXtreamTask` audits or applies exact-TMDB enrichment candidates.
+- `NormalizeXtreamTask` audits or applies title changes after enrichment succeeds.
 - `ILibraryManager` supplies Movies and Series; no direct SQLite access is used.
-- Plugin state belongs under Jellyfin's plugin data path in future write-enabled releases.
+- Write mode runs only after a successful latest sync and preserves images.
+- Write mode requires every changed source root from that sync to be indexed.
+- A shared lock prevents overlap with the migration-era Python pipeline.
+- Plugin state is atomically replaced under Jellyfin's data directory.
 
 ## Build
 
@@ -63,9 +66,8 @@ dotnet test --configuration Release --no-build
 
 ## Migration Status
 
-The production Python/systemd pipeline remains authoritative while `0.1.x` runs
-in shadow mode. Cutover requires matching candidate counts for both a manual and
-scheduled Xtream sync, followed by a write-enabled release with rollback proof.
+The production Python/systemd pipeline remains authoritative until a guarded
+write-mode run and rollback are proven on the active server.
 
 ## License
 

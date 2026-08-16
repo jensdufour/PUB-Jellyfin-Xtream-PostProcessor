@@ -26,6 +26,10 @@ public sealed class AuditReportWriter
 
     internal Task WriteEnrichmentAsync(
         EnrichmentAuditReport report,
+        bool writeEnabled,
+        int completedCount,
+        int failureCount,
+        int terminalCount,
         CancellationToken cancellationToken) => WriteAsync(
             "last-enrichment-audit.json",
             new
@@ -36,6 +40,10 @@ public sealed class AuditReportWriter
                 scannedItemCount = report.ScannedItemCount,
                 candidateCount = report.Candidates.Count,
                 invalidProviderIdCount = report.Candidates.Count(candidate => candidate.InvalidProviderId),
+                writeEnabled,
+                completedCount,
+                failureCount,
+                terminalCount,
                 candidates = report.Candidates.Select(candidate => new
                 {
                     id = candidate.Item.Id,
@@ -49,6 +57,9 @@ public sealed class AuditReportWriter
 
     internal Task WriteNormalizationAsync(
         NormalizationAuditReport report,
+        bool writeEnabled,
+        int appliedCount,
+        int failureCount,
         CancellationToken cancellationToken) => WriteAsync(
             "last-normalization-audit.json",
             new
@@ -59,6 +70,9 @@ public sealed class AuditReportWriter
                 scannedItemCount = report.ScannedItemCount,
                 candidateCount = report.Candidates.Count,
                 itemUpdateCount = report.Candidates.Count(candidate => candidate.NeedsItemUpdate),
+                writeEnabled,
+                appliedCount,
+                failureCount,
                 candidates = report.Candidates.Select(candidate => new
                 {
                     id = candidate.Item.Id,

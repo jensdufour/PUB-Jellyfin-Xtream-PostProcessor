@@ -11,12 +11,24 @@
             <form id="XtreamPostProcessorConfigForm">
                 <div class="verticalSection">
                     <h2 class="sectionTitle">Xtream Post Processor</h2>
-                    <div class="fieldDescription">This release is audit-only. It plans enrichment and normalization but never modifies media or metadata.</div>
+                    <div class="fieldDescription">Audit-only is the safe default. Metadata writes also require the latest Xtream synchronization to have succeeded.</div>
                 </div>
                 <div class="checkboxContainer checkboxContainer-withDescription">
                     <label class="emby-checkbox-label">
                         <input id="Enabled" type="checkbox" is="emby-checkbox" />
                         <span>Watch Xtream sync completion</span>
+                    </label>
+                </div>
+                <div class="checkboxContainer checkboxContainer-withDescription">
+                    <label class="emby-checkbox-label">
+                        <input id="AuditOnly" type="checkbox" is="emby-checkbox" />
+                        <span>Audit only (do not modify metadata)</span>
+                    </label>
+                </div>
+                <div class="checkboxContainer checkboxContainer-withDescription">
+                    <label class="emby-checkbox-label">
+                        <input id="RetryFailed" type="checkbox" is="emby-checkbox" />
+                        <span>Retry previous failures</span>
                     </label>
                 </div>
                 <div class="inputContainer">
@@ -27,6 +39,11 @@
                 <div class="inputContainer">
                     <label class="inputLabel inputLabelUnfocused" for="LegacyStateRelativePath">Legacy enrichment state path</label>
                     <input id="LegacyStateRelativePath" type="text" is="emby-input" />
+                </div>
+                <div class="inputContainer">
+                    <label class="inputLabel inputLabelUnfocused" for="StateRelativePath">Plugin enrichment state path</label>
+                    <input id="StateRelativePath" type="text" is="emby-input" />
+                    <div class="fieldDescription">Must remain under Jellyfin's data/xtream-post-processor directory.</div>
                 </div>
                 <div class="inputContainer">
                     <label class="inputLabel inputLabelUnfocused" for="XtreamRoot">Xtream media root</label>
@@ -48,6 +65,10 @@
                     <label class="inputLabel inputLabelUnfocused" for="IndexingTimeoutSeconds">Indexing timeout (seconds)</label>
                     <input id="IndexingTimeoutSeconds" type="number" is="emby-input" min="1" />
                 </div>
+                <div class="inputContainer">
+                    <label class="inputLabel inputLabelUnfocused" for="MaxUnindexedChangedRoots">Maximum unindexed changed roots</label>
+                    <input id="MaxUnindexedChangedRoots" type="number" is="emby-input" min="0" />
+                </div>
                 <button is="emby-button" type="submit" class="raised button-submit block emby-button">
                     <span>Save</span>
                 </button>
@@ -62,13 +83,17 @@
                 Dashboard.showLoadingMsg();
                 ApiClient.getPluginConfiguration(pluginId).then(function (config) {
                     document.querySelector('#Enabled').checked = config.Enabled;
+                    document.querySelector('#AuditOnly').checked = config.AuditOnly;
+                    document.querySelector('#RetryFailed').checked = config.RetryFailed;
                     document.querySelector('#SyncHistoryRelativePath').value = config.SyncHistoryRelativePath;
                     document.querySelector('#LegacyStateRelativePath').value = config.LegacyStateRelativePath;
+                    document.querySelector('#StateRelativePath').value = config.StateRelativePath;
                     document.querySelector('#XtreamRoot').value = config.XtreamRoot;
                     document.querySelector('#FallbackLanguage').value = config.FallbackLanguage;
                     document.querySelector('#EnrichmentWorkers').value = config.EnrichmentWorkers;
                     document.querySelector('#IndexingStableSeconds').value = config.IndexingStableSeconds;
                     document.querySelector('#IndexingTimeoutSeconds').value = config.IndexingTimeoutSeconds;
+                    document.querySelector('#MaxUnindexedChangedRoots').value = config.MaxUnindexedChangedRoots;
                     Dashboard.hideLoadingMsg();
                 });
             });
@@ -76,14 +101,17 @@
                 Dashboard.showLoadingMsg();
                 ApiClient.getPluginConfiguration(pluginId).then(function (config) {
                     config.Enabled = document.querySelector('#Enabled').checked;
-                    config.AuditOnly = true;
+                    config.AuditOnly = document.querySelector('#AuditOnly').checked;
+                    config.RetryFailed = document.querySelector('#RetryFailed').checked;
                     config.SyncHistoryRelativePath = document.querySelector('#SyncHistoryRelativePath').value;
                     config.LegacyStateRelativePath = document.querySelector('#LegacyStateRelativePath').value;
+                    config.StateRelativePath = document.querySelector('#StateRelativePath').value;
                     config.XtreamRoot = document.querySelector('#XtreamRoot').value;
                     config.FallbackLanguage = document.querySelector('#FallbackLanguage').value;
                     config.EnrichmentWorkers = Number(document.querySelector('#EnrichmentWorkers').value);
                     config.IndexingStableSeconds = Number(document.querySelector('#IndexingStableSeconds').value);
                     config.IndexingTimeoutSeconds = Number(document.querySelector('#IndexingTimeoutSeconds').value);
+                    config.MaxUnindexedChangedRoots = Number(document.querySelector('#MaxUnindexedChangedRoots').value);
                     ApiClient.updatePluginConfiguration(pluginId, config).then(Dashboard.processPluginConfigurationUpdateResult);
                 });
                 event.preventDefault();
