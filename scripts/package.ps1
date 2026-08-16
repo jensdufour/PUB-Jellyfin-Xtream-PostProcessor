@@ -13,7 +13,7 @@ $archive = Join-Path $output "xtream-post-processor_$Version.zip"
 Remove-Item $output -Recurse -Force -ErrorAction SilentlyContinue
 New-Item $publish -ItemType Directory -Force | Out-Null
 
-dotnet publish $project --configuration Release --output $publish /p:Version=$Version
+dotnet publish $project --configuration Release --output $publish /p:Version=$Version | Out-Host
 if ($LASTEXITCODE -ne 0) {
     throw 'dotnet publish failed'
 }

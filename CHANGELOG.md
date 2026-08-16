@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.0.2
+
+- Publish the plugin-owned state migration with machine-readable release packaging.
+
 ## 0.1.0.1
 
 - Prefer a stable plugin-owned enrichment state path.
