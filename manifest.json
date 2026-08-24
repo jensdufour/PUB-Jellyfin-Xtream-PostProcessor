@@ -8,6 +8,14 @@
     "owner": "jensdufour",
     "versions": [
       {
+        "version": "0.2.0.2",
+        "changelog": "Xtream Post Processor 0.2.0.2",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/jensdufour/PUB-Jellyfin-Xtream-PostProcessor/releases/download/v0.2.0.2/xtream-post-processor_0.2.0.2.zip",
+        "checksum": "2fad5ce46407cb66c9830d5dcf189a9c",
+        "timestamp": "2026-08-24T14:37:07Z"
+      },
+      {
         "version": "0.2.0.1",
         "changelog": "Xtream Post Processor 0.2.0.1",
         "targetAbi": "10.11.0.0",
