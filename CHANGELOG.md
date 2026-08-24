@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.0.2
+
+- Ignore recently touched source roots that contain no STRM media while waiting for Jellyfin indexing.
+
 ## 0.2.0.1
 
 - Retrieve exact-TMDB overviews through an ordered Jellyfin provider-language chain.

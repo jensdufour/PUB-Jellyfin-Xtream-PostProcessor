@@ -1,10 +1,36 @@
 using Jellyfin.Plugin.XtreamPostProcessor.Planning;
 using Jellyfin.Plugin.XtreamPostProcessor.Services;
+using Jellyfin.Plugin.XtreamPostProcessor.Configuration;
 
 namespace Jellyfin.Plugin.XtreamPostProcessor.Tests;
 
 public sealed class IndexingSafetyTests
 {
+    [Fact]
+    public void ChangedSourceRootsIgnoreFoldersWithoutStrmFiles()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"xtream-{Guid.NewGuid():N}");
+        var emptyRoot = Path.Combine(root, "Movies", "EN - - Example (2026) [tmdbid-42]");
+        var mediaRoot = Path.Combine(root, "Movies", "EN - Example (2026) [tmdbid-42]");
+        Directory.CreateDirectory(emptyRoot);
+        Directory.CreateDirectory(mediaRoot);
+        File.WriteAllText(Path.Combine(emptyRoot, "Example.nfo"), "metadata only");
+        File.WriteAllText(Path.Combine(mediaRoot, "Example.strm"), "https://example.invalid/stream");
+
+        try
+        {
+            var changed = LibraryAuditService.ChangedSourceRoots(
+                new PluginConfiguration { XtreamRoot = root },
+                DateTimeOffset.UtcNow.AddMinutes(-1));
+
+            Assert.Equal(Path.GetFullPath(mediaRoot), Assert.Single(changed));
+        }
+        finally
+        {
+            Directory.Delete(root, true);
+        }
+    }
+
     [Fact]
     public void DoesNotCollapseDistinctRootsByTmdbIdentity()
     {

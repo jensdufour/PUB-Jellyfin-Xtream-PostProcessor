@@ -70,7 +70,7 @@ dotnet test --configuration Release --no-build
 
 ## Production Status
 
-Version `0.2.0.1` replaced the migration-era Python/systemd pipeline after
+Version `0.2.0.2` replaced the migration-era Python/systemd pipeline after
 one-item, full controlled, and official scheduled-sync proofs on Jellyfin
 `10.11.11`. Audit-only remains the installation default for new servers.
 

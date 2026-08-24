@@ -211,7 +211,7 @@ public sealed class LibraryAuditService
         }
     }
 
-    private static IReadOnlyList<string> ChangedSourceRoots(
+    internal static IReadOnlyList<string> ChangedSourceRoots(
         PluginConfiguration configuration,
         DateTimeOffset syncStarted)
     {
@@ -223,6 +223,8 @@ public sealed class LibraryAuditService
                 var directory = new DirectoryInfo(path);
                 return directory.LastWriteTimeUtc >= cutoff || directory.CreationTimeUtc >= cutoff;
             })
+            .Where(path => Directory.EnumerateFiles(path, "*", SearchOption.AllDirectories)
+                .Any(file => string.Equals(Path.GetExtension(file), ".strm", StringComparison.OrdinalIgnoreCase)))
             .Select(Path.GetFullPath)
             .Order(StringComparer.Ordinal)
             .ToArray();
