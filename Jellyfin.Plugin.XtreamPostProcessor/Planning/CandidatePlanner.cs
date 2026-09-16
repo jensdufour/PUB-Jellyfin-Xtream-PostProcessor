@@ -1,4 +1,7 @@
 using System.Globalization;
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
 using Jellyfin.Plugin.XtreamPostProcessor.Normalization;
 using Jellyfin.Plugin.XtreamPostProcessor.State;
 
@@ -42,32 +45,44 @@ internal static partial class CandidatePlanner
     }
 
     public static IReadOnlyList<NormalizationPlanItem> PlanNormalization(
-        IEnumerable<LibraryItemSnapshot> items)
+        IEnumerable<LibraryItemSnapshot> items,
+        EnrichmentState? state = null,
+        bool retryFailed = true)
     {
         var results = new List<NormalizationPlanItem>();
         foreach (var item in items)
         {
             var sourceName = SourceName(item);
-            if (!TitleNormalizer.HasProviderPrefix(sourceName)
-                && !sourceName.Contains("[tmdbid-0]", StringComparison.OrdinalIgnoreCase))
+            if (!TitleNormalizer.IsValidTmdbId(item.TmdbId) || item.TitleLocked)
             {
                 continue;
             }
 
-            var decision = TitleNormalizer.DesiredItemTitle(
-                item.Name,
-                sourceName,
-                item.OriginalTitle,
-                item.IsSeries);
+            if (state?.Items.TryGetValue(item.Id, out var previous) == true
+                && previous.Fingerprint == NormalizationFingerprint(item)
+                && (previous.Status == "canonical" || !retryFailed))
+            {
+                continue;
+            }
+
             results.Add(new NormalizationPlanItem(
                 item,
                 sourceName,
-                decision,
-                !string.Equals(decision.Title, item.Name, StringComparison.Ordinal)));
+                new("", "pending-provider-lookup"),
+                false));
         }
 
-        return results;
+        return results.OrderBy(candidate => state?.Items.ContainsKey(candidate.Item.Id) == true)
+            .ThenBy(candidate => state?.Items.TryGetValue(candidate.Item.Id, out var previous) == true ? previous.AttemptedUtc : null)
+            .ThenBy(candidate => candidate.Item.Id, StringComparer.Ordinal).ToArray();
     }
+
+    internal static string NormalizationFingerprint(LibraryItemSnapshot item) => Convert.ToHexString(
+        SHA256.HashData(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(new
+        {
+            item.TypeName, item.Path, item.TmdbId, item.Name, item.MetadataLanguage, item.MetadataCountryCode, item.TitleLocked,
+            item.FillMissingOverview, OverviewMissing = item.FillMissingOverview && string.IsNullOrWhiteSpace(item.Overview), item.DateLastMediaAdded
+        }))));
 
     private static bool ShouldProcess(
         EnrichmentPlanItem candidate,

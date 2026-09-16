@@ -11,18 +11,23 @@
             <form id="XtreamPostProcessorConfigForm">
                 <div class="verticalSection">
                     <h2 class="sectionTitle">Xtream Post Processor</h2>
-                    <div class="fieldDescription">Audit-only is the safe default. Metadata writes also require the latest Xtream synchronization to have succeeded.</div>
                 </div>
                 <div class="checkboxContainer checkboxContainer-withDescription">
                     <label class="emby-checkbox-label">
                         <input id="Enabled" type="checkbox" is="emby-checkbox" />
-                        <span>Watch Xtream sync completion</span>
+                        <span>Enable Xtream post-processing</span>
                     </label>
                 </div>
                 <div class="checkboxContainer checkboxContainer-withDescription">
                     <label class="emby-checkbox-label">
                         <input id="AuditOnly" type="checkbox" is="emby-checkbox" />
                         <span>Audit only (do not modify metadata)</span>
+                    </label>
+                </div>
+                <div class="checkboxContainer checkboxContainer-withDescription">
+                    <label class="emby-checkbox-label">
+                        <input id="FillMissingOverview" type="checkbox" is="emby-checkbox" />
+                        <span>Fill missing overview with canonical title</span>
                     </label>
                 </div>
                 <div class="checkboxContainer checkboxContainer-withDescription">
@@ -47,10 +52,10 @@
                 </div>
                 <div class="inputContainer">
                     <label class="inputLabel inputLabelUnfocused" for="XtreamRoot">Xtream media root</label>
-                    <input id="XtreamRoot" type="text" is="emby-input" />
+                    <input id="XtreamRoot" type="text" is="emby-input" required />
                 </div>
                 <div class="inputContainer">
-                    <label class="inputLabel inputLabelUnfocused" for="FallbackLanguages">Fallback metadata languages</label>
+                    <label class="inputLabel inputLabelUnfocused" for="FallbackLanguages">Manual enrichment fallback languages</label>
                     <input id="FallbackLanguages" type="text" is="emby-input" />
                     <div class="fieldDescription">Comma-separated language codes, tried in order.</div>
                 </div>
@@ -68,18 +73,6 @@
                     <label class="inputLabel inputLabelUnfocused" for="EnrichmentWorkers">Enrichment workers</label>
                     <input id="EnrichmentWorkers" type="number" is="emby-input" min="1" max="16" />
                 </div>
-                <div class="inputContainer">
-                    <label class="inputLabel inputLabelUnfocused" for="IndexingStableSeconds">Indexing stability window (seconds)</label>
-                    <input id="IndexingStableSeconds" type="number" is="emby-input" min="0" />
-                </div>
-                <div class="inputContainer">
-                    <label class="inputLabel inputLabelUnfocused" for="IndexingTimeoutSeconds">Indexing timeout (seconds)</label>
-                    <input id="IndexingTimeoutSeconds" type="number" is="emby-input" min="1" />
-                </div>
-                <div class="inputContainer">
-                    <label class="inputLabel inputLabelUnfocused" for="MaxUnindexedChangedRoots">Maximum unindexed changed roots</label>
-                    <input id="MaxUnindexedChangedRoots" type="number" is="emby-input" min="0" />
-                </div>
                 <button is="emby-button" type="submit" class="raised button-submit block emby-button">
                     <span>Save</span>
                 </button>
@@ -95,6 +88,7 @@
                 ApiClient.getPluginConfiguration(pluginId).then(function (config) {
                     document.querySelector('#Enabled').checked = config.Enabled;
                     document.querySelector('#AuditOnly').checked = config.AuditOnly;
+                    document.querySelector('#FillMissingOverview').checked = config.FillMissingOverview;
                     document.querySelector('#RetryFailed').checked = config.RetryFailed;
                     document.querySelector('#SyncHistoryRelativePath').value = config.SyncHistoryRelativePath;
                     document.querySelector('#LegacyStateRelativePath').value = config.LegacyStateRelativePath;
@@ -104,9 +98,6 @@
                     document.querySelector('#WriteBatchSize').value = config.WriteBatchSize;
                     document.querySelector('#WriteItemId').value = config.WriteItemId || '';
                     document.querySelector('#EnrichmentWorkers').value = config.EnrichmentWorkers;
-                    document.querySelector('#IndexingStableSeconds').value = config.IndexingStableSeconds;
-                    document.querySelector('#IndexingTimeoutSeconds').value = config.IndexingTimeoutSeconds;
-                    document.querySelector('#MaxUnindexedChangedRoots').value = config.MaxUnindexedChangedRoots;
                     Dashboard.hideLoadingMsg();
                 });
             });
@@ -115,6 +106,7 @@
                 ApiClient.getPluginConfiguration(pluginId).then(function (config) {
                     config.Enabled = document.querySelector('#Enabled').checked;
                     config.AuditOnly = document.querySelector('#AuditOnly').checked;
+                    config.FillMissingOverview = document.querySelector('#FillMissingOverview').checked;
                     config.RetryFailed = document.querySelector('#RetryFailed').checked;
                     config.SyncHistoryRelativePath = document.querySelector('#SyncHistoryRelativePath').value;
                     config.LegacyStateRelativePath = document.querySelector('#LegacyStateRelativePath').value;
@@ -124,9 +116,6 @@
                     config.WriteBatchSize = Number(document.querySelector('#WriteBatchSize').value);
                     config.WriteItemId = document.querySelector('#WriteItemId').value;
                     config.EnrichmentWorkers = Number(document.querySelector('#EnrichmentWorkers').value);
-                    config.IndexingStableSeconds = Number(document.querySelector('#IndexingStableSeconds').value);
-                    config.IndexingTimeoutSeconds = Number(document.querySelector('#IndexingTimeoutSeconds').value);
-                    config.MaxUnindexedChangedRoots = Number(document.querySelector('#MaxUnindexedChangedRoots').value);
                     ApiClient.updatePluginConfiguration(pluginId, config).then(Dashboard.processPluginConfigurationUpdateResult);
                 });
                 event.preventDefault();

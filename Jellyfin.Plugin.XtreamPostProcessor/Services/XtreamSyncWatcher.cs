@@ -1,133 +1,91 @@
-using Jellyfin.Plugin.XtreamPostProcessor.Sync;
+using System.Threading.Channels;
+using Jellyfin.Plugin.XtreamPostProcessor.Configuration;
 using Jellyfin.Plugin.XtreamPostProcessor.Tasks;
-using MediaBrowser.Common.Configuration;
 using MediaBrowser.Model.Tasks;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.XtreamPostProcessor.Services;
 
-internal sealed class XtreamSyncWatcher : IHostedService, IDisposable
+internal sealed class XtreamSyncWatcher : BackgroundService
 {
-    private readonly IApplicationPaths _applicationPaths;
     private readonly ITaskManager _taskManager;
-    private readonly SyncHistoryReader _historyReader;
+    private readonly LibraryAuditService _auditService;
     private readonly ILogger<XtreamSyncWatcher> _logger;
-    private FileSystemWatcher? _watcher;
-    private CancellationTokenSource? _lifetime;
-    private CancellationTokenSource? _debounce;
-    private string? _lastQueuedIdentity;
+    private readonly Channel<bool> _signals = Channel.CreateBounded<bool>(new BoundedChannelOptions(1)
+    {
+        SingleReader = true,
+        FullMode = BoundedChannelFullMode.DropWrite
+    });
+    private int _pending = 1;
 
     public XtreamSyncWatcher(
-        IApplicationPaths applicationPaths,
         ITaskManager taskManager,
-        SyncHistoryReader historyReader,
+        LibraryAuditService auditService,
         ILogger<XtreamSyncWatcher> logger)
     {
-        _applicationPaths = applicationPaths;
         _taskManager = taskManager;
-        _historyReader = historyReader;
+        _auditService = auditService;
         _logger = logger;
     }
 
-    public async Task StartAsync(CancellationToken cancellationToken)
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        var configuration = Plugin.Instance?.Configuration;
-        if (configuration?.Enabled != true)
-        {
-            return;
-        }
-
-        var path = ResolveDataPath(configuration.SyncHistoryRelativePath);
-        var directory = Path.GetDirectoryName(path);
-        var fileName = Path.GetFileName(path);
-        if (directory is null || !Directory.Exists(directory))
-        {
-            _logger.LogWarning("Xtream sync-history directory is unavailable: {Directory}", directory);
-            return;
-        }
-
-        _lifetime = new CancellationTokenSource();
-        if (File.Exists(path))
-        {
-            _lastQueuedIdentity = (await _historyReader.ReadLatestAsync(path, cancellationToken).ConfigureAwait(false))?.Identity;
-        }
-
-        _watcher = new FileSystemWatcher(directory, fileName)
-        {
-            NotifyFilter = NotifyFilters.FileName | NotifyFilters.LastWrite | NotifyFilters.CreationTime | NotifyFilters.Size,
-            EnableRaisingEvents = true
-        };
-        _watcher.Changed += OnChanged;
-        _watcher.Created += OnChanged;
-        _watcher.Renamed += OnRenamed;
-        _logger.LogInformation("Watching Xtream sync history at {Path}", path);
-    }
-
-    public Task StopAsync(CancellationToken cancellationToken)
-    {
-        _lifetime?.Cancel();
-        _debounce?.Cancel();
-        if (_watcher is not null)
-        {
-            _watcher.EnableRaisingEvents = false;
-        }
-
-        return Task.CompletedTask;
-    }
-
-    public void Dispose()
-    {
-        _watcher?.Dispose();
-        _debounce?.Dispose();
-        _lifetime?.Dispose();
-    }
-
-    private void OnChanged(object sender, FileSystemEventArgs eventArgs) => Schedule(eventArgs.FullPath);
-
-    private void OnRenamed(object sender, RenamedEventArgs eventArgs) => Schedule(eventArgs.FullPath);
-
-    private void Schedule(string path)
-    {
-        var lifetime = _lifetime;
-        var configuration = Plugin.Instance?.Configuration;
-        if (lifetime is null || lifetime.IsCancellationRequested || configuration is null)
-        {
-            return;
-        }
-
-        var debounce = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
-        var previous = Interlocked.Exchange(ref _debounce, debounce);
-        previous?.Cancel();
-        previous?.Dispose();
-        _ = ProcessAfterDelayAsync(path, configuration.WatchDebounceSeconds, debounce.Token);
-    }
-
-    private async Task ProcessAfterDelayAsync(string path, int debounceSeconds, CancellationToken cancellationToken)
-    {
+        _taskManager.TaskCompleted += OnTaskCompleted;
+        _signals.Writer.TryWrite(true);
         try
         {
-            await Task.Delay(TimeSpan.FromSeconds(Math.Max(1, debounceSeconds)), cancellationToken).ConfigureAwait(false);
-            var result = await _historyReader.ReadLatestAsync(path, cancellationToken).ConfigureAwait(false);
-            if (result?.Success != true || string.Equals(result.Identity, _lastQueuedIdentity, StringComparison.Ordinal))
+            await foreach (var signal in _signals.Reader.ReadAllAsync(stoppingToken).ConfigureAwait(false))
             {
-                return;
+                var configuration = Plugin.Instance?.Configuration;
+                if (configuration?.Enabled != true) continue;
+                try
+                {
+                    await ProcessPendingAsync(configuration, stoppingToken).ConfigureAwait(false);
+                }
+                catch (Exception exception) when (exception is not OperationCanceledException)
+                {
+                    Interlocked.Exchange(ref _pending, 1);
+                    _logger.LogError(exception, "Could not queue Xtream canonical metadata; will retry on the next completion event");
+                }
             }
-
-            _lastQueuedIdentity = result.Identity;
-            _logger.LogInformation("Queuing Xtream enrichment audit for sync {SyncIdentity}", result.Identity);
-            _taskManager.QueueScheduledTask<EnrichXtreamTask>(new TaskOptions());
         }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
         {
         }
-        catch (Exception exception)
+        finally
         {
-            _logger.LogError(exception, "Failed to process Xtream sync-history change");
+            _taskManager.TaskCompleted -= OnTaskCompleted;
         }
     }
 
-    private string ResolveDataPath(string configuredPath) => Path.IsPathRooted(configuredPath)
-        ? configuredPath
-        : Path.Combine(_applicationPaths.DataPath, configuredPath);
+    internal async Task ProcessPendingAsync(PluginConfiguration configuration, CancellationToken cancellationToken)
+    {
+        if (!configuration.Enabled || Interlocked.Exchange(ref _pending, 0) == 0) return;
+        try
+        {
+            var sync = await _auditService.ReadLatestSyncAsync(configuration, cancellationToken).ConfigureAwait(false);
+            var worker = _taskManager.ScheduledTasks.FirstOrDefault(task => task.ScheduledTask is NormalizeXtreamTask);
+            if (!_auditService.CanProcess(sync) || worker?.State != TaskState.Idle)
+            {
+                Interlocked.Exchange(ref _pending, 1);
+                return;
+            }
+            _taskManager.QueueIfNotRunning<NormalizeXtreamTask>();
+            _logger.LogInformation("Queued canonical metadata processing for indexed sync {SyncIdentity}", sync!.Identity);
+        }
+        catch
+        {
+            Interlocked.Exchange(ref _pending, 1);
+            throw;
+        }
+    }
+
+    internal void OnTaskCompleted(object? sender, TaskCompletionEventArgs eventArgs)
+    {
+        var key = eventArgs.Task.ScheduledTask.Key;
+        if (key is "XtreamLibrarySync" or "RefreshLibrary") Interlocked.Exchange(ref _pending, 1);
+        if (key is "XtreamLibrarySync" or "RefreshLibrary" or "MergeMoviesTask" or "MergeEpisodesTask" or "XtreamPostProcessorNormalize")
+            _signals.Writer.TryWrite(true);
+    }
 }

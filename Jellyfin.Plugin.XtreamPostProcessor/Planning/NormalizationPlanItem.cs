@@ -6,4 +6,5 @@ internal sealed record NormalizationPlanItem(
     LibraryItemSnapshot Item,
     string SourceName,
     TitleDecision Decision,
-    bool NeedsItemUpdate);
+    bool NeedsItemUpdate,
+    string? MissingOverview = null);

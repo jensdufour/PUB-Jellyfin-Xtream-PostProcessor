@@ -1,52 +1,43 @@
 using Jellyfin.Plugin.XtreamPostProcessor.Normalization;
+using MediaBrowser.Model.Providers;
 
 namespace Jellyfin.Plugin.XtreamPostProcessor.Tests;
 
 public sealed class TitleNormalizerTests
 {
     [Theory]
-    [InlineData("NL - Example (2024) [tmdbid-42]", "Example")]
-    [InlineData("#BE-NL| Example [tvdbid-42]", "Example")]
-    [InlineData("4K-EN - Example (US) (2024) [tmdbid-42]", "Example")]
-    public void NormalizesProviderDisplayTitles(string source, string expected)
+    [InlineData("384", "Doug")]
+    [InlineData("222023", "Jury Duty")]
+    [InlineData("100963", "The Big Show Show")]
+    [InlineData("12908", "Flikken")]
+    public void UsesExactProviderTitle(string identifier, string title)
     {
-        Assert.Equal(expected, TitleNormalizer.NormalizeDisplayTitle(source));
+        Assert.Equal(title, TitleNormalizer.ExactResult(identifier, [Result(identifier, title)])!.Name);
     }
 
     [Fact]
-    public void KeepsCurrentJellyfinTitleWhenAlreadyCurated()
+    public void RejectsUnrelatedBlankAndInvalidResults()
     {
-        var result = TitleNormalizer.DesiredItemTitle(
-            "The Curated Title",
-            "NL - Provider Title [tmdbid-42]",
-            "Provider Title",
-            isSeries: false);
-
-        Assert.Equal(new TitleDecision("The Curated Title", "current-jellyfin-title"), result);
+        Assert.Null(TitleNormalizer.ExactResult("42", [Result("43", "Wrong")]));
+        Assert.Null(TitleNormalizer.ExactResult("42", [Result("42", " ")]));
+        Assert.Null(TitleNormalizer.ExactResult("0", [Result("0", "Unknown")]));
     }
 
     [Fact]
-    public void AppliesKnownSeriesAlias()
+    public void RejectsAmbiguousResults()
     {
-        var result = TitleNormalizer.DesiredItemTitle(
-            "NL - Flikken Gent",
-            "Flikken Gent (1999) (BE) [tmdbid-12908]",
-            null,
-            isSeries: true);
-
-        Assert.Equal(new TitleDecision("Flikken", "known-series-alias"), result);
+        Assert.Throws<InvalidOperationException>(() => TitleNormalizer.ExactResult("42", [Result("42", "First"), Result("42", "Second")]));
     }
 
     [Fact]
-    public void HasNoFuturamaSpecificRule()
+    public void PreservesProviderPunctuationAndLegitimateYears()
     {
-        var result = TitleNormalizer.DesiredItemTitle(
-            "EN - Futurama",
-            "EN - Futurama [tmdbid-615]",
-            "Futurama",
-            isSeries: true);
-
-        Assert.Equal("Futurama", result.Title);
-        Assert.NotEqual("known-series-alias", result.Source);
+        Assert.Equal("1984 (Director's Cut)", TitleNormalizer.ExactResult("42", [Result("42", "1984 (Director's Cut)")])!.Name);
     }
+
+    private static RemoteSearchResult Result(string identifier, string title) => new()
+    {
+        Name = title,
+        ProviderIds = new Dictionary<string, string> { ["Tmdb"] = identifier }
+    };
 }

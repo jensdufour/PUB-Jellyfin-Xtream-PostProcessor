@@ -135,7 +135,7 @@ public sealed class CandidatePlannerTests
     }
 
     [Fact]
-    public void NormalizationPlanUsesSourceFolderAndPreservesCuratedTitle()
+    public void NormalizationPlanDefersTitleDecisionToProvider()
     {
         var item = Item("A", "Curated", overview: "Present", tmdbId: "42") with
         {
@@ -146,12 +146,12 @@ public sealed class CandidatePlannerTests
         var plan = Assert.Single(CandidatePlanner.PlanNormalization([item]));
 
         Assert.Equal("NL - Example [tmdbid-42]", plan.SourceName);
-        Assert.Equal("Curated", plan.Decision.Title);
+        Assert.Equal("pending-provider-lookup", plan.Decision.Source);
         Assert.False(plan.NeedsItemUpdate);
     }
 
     [Fact]
-    public void NormalizationPlanIgnoresOrdinarySourceNames()
+    public void NormalizationPlanIncludesNamesWithoutProviderPrefixes()
     {
         var item = Item("A", "Futurama", overview: "Present", tmdbId: "615") with
         {
@@ -159,7 +159,32 @@ public sealed class CandidatePlannerTests
             IsSeries = true
         };
 
-        Assert.Empty(CandidatePlanner.PlanNormalization([item]));
+        Assert.Single(CandidatePlanner.PlanNormalization([item]));
+        Assert.Empty(CandidatePlanner.PlanNormalization([item with { TitleLocked = true }]));
+        Assert.Empty(CandidatePlanner.PlanNormalization([item with { TmdbId = null }]));
+    }
+
+    [Fact]
+    public void CanonicalCheckpointSkipsUnchangedButReopensTitleAndLanguageChanges()
+    {
+        var item = Item("A", "The Big Show Show", "Present", "100963") with { MetadataLanguage = "en" };
+        var state = new EnrichmentState();
+        state.Items[item.Id] = new() { Fingerprint = CandidatePlanner.NormalizationFingerprint(item), Status = "canonical" };
+        Assert.Empty(CandidatePlanner.PlanNormalization([item], state));
+        Assert.Single(CandidatePlanner.PlanNormalization([item with { Name = "The Big Show Show (2020) (US)" }], state));
+        Assert.Single(CandidatePlanner.PlanNormalization([item with { MetadataLanguage = "nl" }], state));
+        Assert.Single(CandidatePlanner.PlanNormalization([item with { TmdbId = "384" }], state));
+        Assert.Single(CandidatePlanner.PlanNormalization([item with { DateLastMediaAdded = DateTime.UtcNow }], state));
+    }
+
+    [Fact]
+    public void MissingProviderIsRetryableWithoutLosingOtherCheckpoints()
+    {
+        var item = Item("A", "EN - Doug (1991) (US)", "Present", "384");
+        var state = new EnrichmentState();
+        state.Items[item.Id] = new() { Fingerprint = CandidatePlanner.NormalizationFingerprint(item), Status = "provider-unavailable" };
+        Assert.Single(CandidatePlanner.PlanNormalization([item], state));
+        Assert.Empty(CandidatePlanner.PlanNormalization([item], state, retryFailed: false));
     }
 
     private static LibraryItemSnapshot Item(string id, string name, string? overview, string? tmdbId) =>

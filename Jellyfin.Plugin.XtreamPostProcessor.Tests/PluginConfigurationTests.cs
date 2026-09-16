@@ -13,10 +13,11 @@ public sealed class PluginConfigurationTests
 
         Assert.True(configuration.Enabled);
         Assert.True(configuration.AuditOnly);
+        Assert.Empty(configuration.XtreamRoot);
         Assert.Equal("xtream-library/sync_history.json", configuration.SyncHistoryRelativePath);
         Assert.Equal("xtream-post-processor/enrichment-state.json", configuration.StateRelativePath);
         Assert.Equal(6, configuration.EnrichmentWorkers);
-        Assert.Equal(100, configuration.MaxUnindexedChangedRoots);
+        Assert.False(configuration.FillMissingOverview);
         Assert.Equal("nl", configuration.FallbackLanguage);
         Assert.Equal("nl,en,sv,da,cs", configuration.FallbackLanguages);
         Assert.Equal(0, configuration.WriteBatchSize);

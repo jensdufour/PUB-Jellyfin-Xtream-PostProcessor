@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.3.0.0
+
+- Target .NET 10 and Jellyfin 12.0 APIs; leave the published 10.11 catalog unchanged.
+- Replace title heuristics with existing exact-TMDb IDs and Jellyfin's localized provider result.
+- Preserve locked titles, identity, artwork and media; repair unlocked series labels and optionally fill missing overviews.
+- Verify native NFO title saves, retain retryable failures, and checkpoint incremental title processing separately from enrichment.
+- Replace file watching/stability polling and legacy cross-process coordination with coalesced native task completions and in-process serialization.
+- Require successful indexing evidence, including conservative handling of unchanged sync history; never modify native schedules.
+- Require an explicit media root on new installations; remove obsolete polling controls. Live Jellyfin 12.1 write acceptance remains pending.
+- Guard parent/child writes against saved configuration changes and newly active sync/scans; reject scans that began before changing syncs completed.
+- Package by version with assembly-version verification and SHA-256 output; document direct production installation after scan completion without a separate rehearsal environment.
+
 ## 0.2.0.2
 
 - Ignore recently touched source roots that contain no STRM media while waiting for Jellyfin indexing.

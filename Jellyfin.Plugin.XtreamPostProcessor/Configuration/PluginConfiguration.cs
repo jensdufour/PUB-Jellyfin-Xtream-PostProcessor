@@ -15,6 +15,9 @@ public sealed class PluginConfiguration : BasePluginConfiguration
     /// <summary>Gets or sets a value indicating whether changes are audit-only.</summary>
     public bool AuditOnly { get; set; } = true;
 
+    /// <summary>Gets or sets whether canonical title processing also fills a missing overview from the same localized result.</summary>
+    public bool FillMissingOverview { get; set; }
+
     /// <summary>Gets or sets the sync-history path relative to Jellyfin's data directory.</summary>
     public string SyncHistoryRelativePath { get; set; } = "xtream-library/sync_history.json";
 
@@ -25,7 +28,7 @@ public sealed class PluginConfiguration : BasePluginConfiguration
     public string StateRelativePath { get; set; } = "xtream-post-processor/enrichment-state.json";
 
     /// <summary>Gets or sets the Xtream media root.</summary>
-    public string XtreamRoot { get; set; } = "/data/media/xtream";
+    public string XtreamRoot { get; set; } = string.Empty;
 
     /// <summary>Gets or sets the legacy fallback metadata language.</summary>
     public string FallbackLanguage { get; set; } = "nl";
@@ -66,15 +69,4 @@ public sealed class PluginConfiguration : BasePluginConfiguration
     /// <summary>Gets or sets a value indicating whether retryable failures are included.</summary>
     public bool RetryFailed { get; set; } = true;
 
-    /// <summary>Gets or sets the file-watcher debounce interval in seconds.</summary>
-    public int WatchDebounceSeconds { get; set; } = 2;
-
-    /// <summary>Gets or sets the indexing stability window in seconds.</summary>
-    public int IndexingStableSeconds { get; set; } = 180;
-
-    /// <summary>Gets or sets the indexing timeout in seconds.</summary>
-    public int IndexingTimeoutSeconds { get; set; } = 5400;
-
-    /// <summary>Gets or sets the maximum changed source roots not represented in Jellyfin.</summary>
-    public int MaxUnindexedChangedRoots { get; set; } = 100;
 }

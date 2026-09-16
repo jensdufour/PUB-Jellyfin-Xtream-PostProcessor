@@ -1,0 +1,77 @@
+diff --git a/global.json b/global.json
+index 6b16c16..01cb658 100644
+--- a/global.json
++++ b/global.json
+@@ -1,6 +1,6 @@
+ {
+   "sdk": {
+-    "version": "9.0.306",
++    "version": "10.0.400",
+     "rollForward": "latestFeature"
+   }
+ }
+diff --git a/build.yaml b/build.yaml
+index c0978aa..46996d5 100644
+--- a/build.yaml
++++ b/build.yaml
+@@ -2,8 +2,8 @@
+ name: "Xtream Post Processor"
+ guid: "d9f0f3d1-2bb9-4eed-a96e-5344f4e683a9"
+ version: "0.2.0.2"
+-targetAbi: "10.11.0.0"
+-framework: "net9.0"
++targetAbi: "12.0.0.0"
++framework: "net10.0"
+ overview: "Enrich and normalize Xtream-backed Jellyfin libraries."
+ description: >
+   Watches Xtream sync completion, enriches exact-TMDB metadata, and normalizes
+diff --git a/Jellyfin.Plugin.XtreamPostProcessor/Jellyfin.Plugin.XtreamPostProcessor.csproj b/Jellyfin.Plugin.XtreamPostProcessor/Jellyfin.Plugin.XtreamPostProcessor.csproj
+index e981dc6..40bc1f4 100644
+--- a/Jellyfin.Plugin.XtreamPostProcessor/Jellyfin.Plugin.XtreamPostProcessor.csproj
++++ b/Jellyfin.Plugin.XtreamPostProcessor/Jellyfin.Plugin.XtreamPostProcessor.csproj
+@@ -1,7 +1,7 @@
+ ﻿<Project Sdk="Microsoft.NET.Sdk">
+ 
+   <PropertyGroup>
+-    <TargetFramework>net9.0</TargetFramework>
++    <TargetFramework>net10.0</TargetFramework>
+     <ImplicitUsings>enable</ImplicitUsings>
+     <Nullable>enable</Nullable>
+     <GenerateDocumentationFile>true</GenerateDocumentationFile>
+@@ -10,10 +10,10 @@
+   </PropertyGroup>
+ 
+   <ItemGroup>
+-    <PackageReference Include="Jellyfin.Controller" Version="10.11.11">
++    <PackageReference Include="Jellyfin.Controller" Version="12.0.0">
+       <ExcludeAssets>runtime</ExcludeAssets>
+     </PackageReference>
+-    <PackageReference Include="Jellyfin.Model" Version="10.11.11">
++    <PackageReference Include="Jellyfin.Model" Version="12.0.0">
+       <ExcludeAssets>runtime</ExcludeAssets>
+     </PackageReference>
+   </ItemGroup>
+diff --git a/Jellyfin.Plugin.XtreamPostProcessor.Tests/Jellyfin.Plugin.XtreamPostProcessor.Tests.csproj b/Jellyfin.Plugin.XtreamPostProcessor.Tests/Jellyfin.Plugin.XtreamPostProcessor.Tests.csproj
+index c051bfb..2c43c96 100644
+--- a/Jellyfin.Plugin.XtreamPostProcessor.Tests/Jellyfin.Plugin.XtreamPostProcessor.Tests.csproj
++++ b/Jellyfin.Plugin.XtreamPostProcessor.Tests/Jellyfin.Plugin.XtreamPostProcessor.Tests.csproj
+@@ -1,7 +1,7 @@
+ ﻿<Project Sdk="Microsoft.NET.Sdk">
+ 
+   <PropertyGroup>
+-    <TargetFramework>net9.0</TargetFramework>
++    <TargetFramework>net10.0</TargetFramework>
+     <ImplicitUsings>enable</ImplicitUsings>
+     <Nullable>enable</Nullable>
+     <IsPackable>false</IsPackable>
+@@ -9,8 +9,8 @@
+   </PropertyGroup>
+ 
+   <ItemGroup>
+-    <PackageReference Include="Jellyfin.Controller" Version="10.11.11" />
+-    <PackageReference Include="Jellyfin.Model" Version="10.11.11" />
++    <PackageReference Include="Jellyfin.Controller" Version="12.0.0" />
++    <PackageReference Include="Jellyfin.Model" Version="12.0.0" />
+     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+     <PackageReference Include="xunit" Version="2.9.3" />
+     <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />

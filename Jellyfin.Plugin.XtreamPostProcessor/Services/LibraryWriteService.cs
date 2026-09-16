@@ -7,6 +7,9 @@ using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Providers;
 using MediaBrowser.Model.Entities;
 using MediaBrowser.Model.Providers;
+using Jellyfin.Data.Enums;
+using System.Xml;
+using System.Xml.Linq;
 
 namespace Jellyfin.Plugin.XtreamPostProcessor.Services;
 
@@ -32,7 +35,8 @@ public sealed class LibraryWriteService
     internal async Task<EnrichmentWriteResult> ApplyEnrichmentAsync(
         EnrichmentPlanItem plan,
         string fallbackLanguages,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Func<Task>? beforeWrite = null)
     {
         cancellationToken.ThrowIfCancellationRequested();
         if (plan.InvalidProviderId)
@@ -93,6 +97,7 @@ public sealed class LibraryWriteService
             }
 
             cancellationToken.ThrowIfCancellationRequested();
+            if (beforeWrite is not null) await beforeWrite().ConfigureAwait(false);
             item = GetLiveItem(plan.Item);
             if (!string.IsNullOrWhiteSpace(item.Overview))
             {
@@ -133,36 +138,123 @@ public sealed class LibraryWriteService
 
     internal async Task<bool> ApplyTitleAsync(
         NormalizationPlanItem plan,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Func<Task>? beforeWrite = null)
     {
         cancellationToken.ThrowIfCancellationRequested();
         var item = GetLiveItem(plan.Item);
         if (item.IsLocked || item.LockedFields.Contains(MetadataField.Name))
         {
-            return false;
+            throw new InvalidOperationException($"Title was locked during processing for {plan.Item.Id}");
         }
 
-        if (!TitleNormalizer.HasProviderPrefix(plan.SourceName)
-            && !plan.SourceName.Contains("[tmdbid-0]", StringComparison.OrdinalIgnoreCase))
+        if (plan.Decision.Source != "exact-tmdb" || string.IsNullOrWhiteSpace(plan.Decision.Title))
         {
             return false;
         }
 
-        var decision = TitleNormalizer.DesiredItemTitle(
-            item.Name,
-            plan.SourceName,
-            item.OriginalTitle,
-            item is Series);
-
-        if (string.Equals(item.Name, decision.Title, StringComparison.Ordinal))
+        if (!string.Equals(item.Name, plan.Item.Name, StringComparison.Ordinal)
+            && !string.Equals(item.Name, plan.Decision.Title, StringComparison.Ordinal))
         {
-            return false;
+            throw new InvalidOperationException($"Title changed during lookup for {plan.Item.Id}");
         }
 
-        item.Name = decision.Title;
-        await _providerManager.SaveMetadataAsync(item, ItemUpdateType.MetadataEdit).ConfigureAwait(false);
-        await item.UpdateToRepositoryAsync(ItemUpdateType.MetadataImport, CancellationToken.None).ConfigureAwait(false);
-        return true;
+        var nfoPaths = _providerManager.GetMetadataSavers(item, _libraryManager.GetLibraryOptions(item))
+            .OfType<IMetadataFileSaver>().Select(saver => saver.GetSavePath(item))
+            .Where(path => string.Equals(System.IO.Path.GetExtension(path), ".nfo", StringComparison.OrdinalIgnoreCase))
+            .Distinct().ToArray();
+        var nfoNeedsUpdate = false;
+        foreach (var path in nfoPaths)
+        {
+            if (!File.Exists(path) || await ReadNfoTitleAsync(path, cancellationToken).ConfigureAwait(false) != plan.Decision.Title)
+                nfoNeedsUpdate = true;
+        }
+        if (beforeWrite is not null) await beforeWrite().ConfigureAwait(false);
+        cancellationToken.ThrowIfCancellationRequested();
+        item = GetLiveItem(plan.Item);
+        if (item.IsLocked || item.LockedFields.Contains(MetadataField.Name)
+            || (item.Name != plan.Item.Name && item.Name != plan.Decision.Title))
+            throw new InvalidOperationException($"Title or lock changed before saving {plan.Item.Id}");
+        var oldName = item.Name;
+        var oldOverview = item.Overview;
+        var fillOverview = !string.IsNullOrWhiteSpace(plan.MissingOverview) && string.IsNullOrWhiteSpace(item.Overview)
+            && !item.LockedFields.Contains(MetadataField.Overview);
+        var changed = item.Name != plan.Decision.Title || fillOverview || nfoNeedsUpdate;
+        if (changed)
+        {
+            item.Name = plan.Decision.Title;
+            if (fillOverview) item.Overview = plan.MissingOverview;
+            try
+            {
+                await _providerManager.SaveMetadataAsync(item, ItemUpdateType.MetadataEdit).ConfigureAwait(false);
+                foreach (var path in nfoPaths)
+                {
+                    if (await ReadNfoTitleAsync(path, CancellationToken.None).ConfigureAwait(false) != item.Name)
+                        throw new InvalidOperationException($"NFO title was not saved for {plan.Item.Id}");
+                }
+                await _libraryManager.UpdateItemAsync(item, item.GetParent(), ItemUpdateType.MetadataImport, CancellationToken.None).ConfigureAwait(false);
+            }
+            catch
+            {
+                item.Name = oldName;
+                item.Overview = oldOverview;
+                throw;
+            }
+        }
+
+        if (item is Series series)
+        {
+            var children = _libraryManager.GetItemList(new InternalItemsQuery
+            {
+                Parent = series, IncludeItemTypes = [BaseItemKind.Season, BaseItemKind.Episode],
+                Recursive = true, GroupByPresentationUniqueKey = false, EnableTotalRecordCount = false
+            });
+            foreach (var child in children)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var oldSeriesName = child switch { Season currentSeason => currentSeason.SeriesName, Episode currentEpisode => currentEpisode.SeriesName, _ => null };
+                var belongsToSeries = child switch { Season currentSeason => currentSeason.SeriesId == series.Id, Episode currentEpisode => currentEpisode.SeriesId == series.Id, _ => false };
+                if (!belongsToSeries || oldSeriesName == series.Name) continue;
+                if (beforeWrite is not null) await beforeWrite().ConfigureAwait(false);
+                if (child.IsLocked || child.LockedFields.Contains(MetadataField.Name)) continue;
+                if (child is Season season)
+                    season.SeriesName = series.Name;
+                else if (child is Episode episode)
+                    episode.SeriesName = series.Name;
+                try
+                {
+                    await _libraryManager.UpdateItemAsync(child, child.GetParent(), ItemUpdateType.MetadataImport, CancellationToken.None).ConfigureAwait(false);
+                }
+                catch
+                {
+                    if (child is Season failedSeason) failedSeason.SeriesName = oldSeriesName!;
+                    if (child is Episode failedEpisode) failedEpisode.SeriesName = oldSeriesName!;
+                    throw;
+                }
+                changed = true;
+            }
+        }
+        return changed;
+    }
+
+    internal async Task<NormalizationPlanItem> ResolveTitleAsync(NormalizationPlanItem plan, CancellationToken cancellationToken)
+    {
+        if (!TitleNormalizer.IsValidTmdbId(plan.Item.TmdbId)) throw new InvalidOperationException("A valid existing TMDb ID is required");
+        var item = GetLiveItem(plan.Item);
+        var lookup = new EnrichmentPlanItem(plan.Item, string.Empty, false);
+        var results = item switch
+        {
+            Movie => await SearchAsync<Movie, MovieInfo>(new MovieInfo(), lookup, plan.Item.MetadataLanguage, cancellationToken).ConfigureAwait(false),
+            Series => await SearchAsync<Series, SeriesInfo>(new SeriesInfo(), lookup, plan.Item.MetadataLanguage, cancellationToken).ConfigureAwait(false),
+            _ => throw new InvalidOperationException($"Unsupported item type {item.GetType().FullName}")
+        };
+        cancellationToken.ThrowIfCancellationRequested();
+        var match = TitleNormalizer.ExactResult(plan.Item.TmdbId!, results);
+        var missingOverview = plan.Item.FillMissingOverview && string.IsNullOrWhiteSpace(item.Overview)
+            && !item.LockedFields.Contains(MetadataField.Overview) ? match?.Overview : null;
+        return match is null
+            ? plan with { Decision = new(plan.Item.Name, "provider-unavailable"), NeedsItemUpdate = false }
+            : plan with { Decision = new(match.Name!, "exact-tmdb"), NeedsItemUpdate = match.Name != item.Name || !string.IsNullOrWhiteSpace(missingOverview), MissingOverview = missingOverview };
     }
 
     private async Task<IReadOnlyList<RemoteSearchResult>> SearchAsync<TItem, TLookup>(
@@ -179,16 +271,24 @@ public sealed class LibraryWriteService
         };
         searchInfo.IsAutomated = false;
         searchInfo.MetadataLanguage = metadataLanguage;
-        searchInfo.MetadataCountryCode = metadataLanguage is null ? null : "BE";
+        searchInfo.MetadataCountryCode = plan.Item.MetadataCountryCode;
         var results = await _providerManager.GetRemoteSearchResults<TItem, TLookup>(
             new RemoteSearchQuery<TLookup>
             {
                 ItemId = Guid.Parse(plan.Item.Id),
+                SearchProviderName = "TheMovieDb",
                 SearchInfo = searchInfo,
                 IncludeDisabledProviders = false
             },
             cancellationToken).ConfigureAwait(false);
         return results.ToArray();
+    }
+
+    private static async Task<string?> ReadNfoTitleAsync(string path, CancellationToken cancellationToken)
+    {
+        using var reader = XmlReader.Create(path, new XmlReaderSettings { Async = true, DtdProcessing = DtdProcessing.Prohibit, XmlResolver = null });
+        var document = await XDocument.LoadAsync(reader, LoadOptions.None, cancellationToken).ConfigureAwait(false);
+        return document.Root?.Element("title")?.Value;
     }
 
     internal static IReadOnlyList<string> ParseFallbackLanguages(string value) => value

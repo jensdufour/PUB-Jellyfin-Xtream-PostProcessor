@@ -1,4 +1,6 @@
 using Jellyfin.Plugin.XtreamPostProcessor.Services;
+using Jellyfin.Plugin.XtreamPostProcessor.Planning;
+using Jellyfin.Plugin.XtreamPostProcessor.State;
 using MediaBrowser.Model.Tasks;
 using Microsoft.Extensions.Logging;
 
@@ -13,6 +15,7 @@ public sealed class NormalizeXtreamTask : IScheduledTask, IConfigurableScheduled
     private readonly AuditReportWriter _reportWriter;
     private readonly LibraryWriteService _writeService;
     private readonly ILogger<NormalizeXtreamTask> _logger;
+    private readonly EnrichmentStateReader _stateReader;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="NormalizeXtreamTask"/> class.
@@ -21,11 +24,13 @@ public sealed class NormalizeXtreamTask : IScheduledTask, IConfigurableScheduled
         LibraryAuditService auditService,
         AuditReportWriter reportWriter,
         LibraryWriteService writeService,
+        EnrichmentStateReader stateReader,
         ILogger<NormalizeXtreamTask> logger)
     {
         _auditService = auditService;
         _reportWriter = reportWriter;
         _writeService = writeService;
+        _stateReader = stateReader;
         _logger = logger;
     }
 
@@ -67,12 +72,10 @@ public sealed class NormalizeXtreamTask : IScheduledTask, IConfigurableScheduled
         var writeEnabled = !configuration.AuditOnly && report.SyncResult?.Success == true;
         var appliedCount = 0;
         var failureCount = 0;
-        if (writeEnabled)
+        if (report.SyncResult?.Success == true)
         {
             var expectedSyncIdentity = report.SyncResult!.Identity;
-            var processingLock = await CrossProcessFileLock.AcquireAsync(
-                _auditService.ResolveProcessingLockPath(),
-                cancellationToken).ConfigureAwait(false);
+            await _auditService.ProcessingGate.WaitAsync(cancellationToken).ConfigureAwait(false);
             try
             {
                 await _auditService.WaitForIndexingAsync(configuration, report.SyncResult!, cancellationToken).ConfigureAwait(false);
@@ -87,30 +90,74 @@ public sealed class NormalizeXtreamTask : IScheduledTask, IConfigurableScheduled
                     throw new InvalidOperationException("Latest Xtream synchronization changed after indexing stabilized");
                 }
 
-                var updates = report.Candidates.Where(candidate => candidate.NeedsItemUpdate).ToArray();
-                var processedCount = 0;
-                foreach (var candidate in updates)
+                if (configuration.WriteBatchSize < 0) throw new InvalidOperationException("Write batch size cannot be negative");
+                IEnumerable<NormalizationPlanItem> updates = report.Candidates;
+                if (!string.IsNullOrWhiteSpace(configuration.WriteItemId))
                 {
-                    cancellationToken.ThrowIfCancellationRequested();
-                    try
-                    {
-                        if (await _writeService.ApplyTitleAsync(candidate, cancellationToken).ConfigureAwait(false))
-                        {
-                            appliedCount++;
-                        }
-                    }
-                    catch (Exception exception) when (exception is not OperationCanceledException)
-                    {
-                        failureCount++;
-                        _logger.LogError(exception, "Failed to normalize Xtream item {ItemId}", candidate.Item.Id);
-                    }
-
-                    progress.Report(100d * ++processedCount / updates.Length);
+                    var selected = Guid.Parse(configuration.WriteItemId);
+                    updates = updates.Where(candidate => Guid.Parse(candidate.Item.Id) == selected);
                 }
+                if (configuration.WriteBatchSize > 0) updates = updates.Take(configuration.WriteBatchSize);
+                var candidates = updates.ToArray();
+                var resolved = new List<NormalizationPlanItem>();
+                var statePath = _auditService.ResolveOwnedStatePath("xtream-post-processor/title-state.json");
+                var state = await _stateReader.ReadAsync(statePath, cancellationToken).ConfigureAwait(false);
+                var processedCount = 0;
+                try
+                {
+                    foreach (var candidate in candidates)
+                    {
+                        cancellationToken.ThrowIfCancellationRequested();
+                        await _auditService.WaitForIndexingAsync(configuration, report.SyncResult!, cancellationToken).ConfigureAwait(false);
+                        var fingerprint = CandidatePlanner.NormalizationFingerprint(candidate.Item);
+                        var status = "provider-unavailable";
+                        try
+                        {
+                            var decision = await _writeService.ResolveTitleAsync(candidate, cancellationToken).ConfigureAwait(false);
+                            resolved.Add(decision);
+                            if (writeEnabled && decision.Decision.Source == "exact-tmdb")
+                            {
+                                if (await _writeService.ApplyTitleAsync(decision, cancellationToken,
+                                    () => _auditService.EnsureCanWriteAsync(configuration, report.SyncResult!, cancellationToken)).ConfigureAwait(false)) appliedCount++;
+                                fingerprint = CandidatePlanner.NormalizationFingerprint(candidate.Item with
+                                {
+                                    Name = decision.Decision.Title,
+                                    Overview = string.IsNullOrWhiteSpace(candidate.Item.Overview) ? decision.MissingOverview : candidate.Item.Overview
+                                });
+                                status = "canonical";
+                            }
+                        }
+                        catch (Exception exception) when (exception is not OperationCanceledException)
+                        {
+                            failureCount++;
+                            status = "failed";
+                            _logger.LogError(exception, "Failed to normalize Xtream item {ItemId}", candidate.Item.Id);
+                        }
+                        if (writeEnabled)
+                        {
+                            state.Items[candidate.Item.Id] = new EnrichmentStateItem
+                            {
+                                Fingerprint = fingerprint, Status = status, AttemptedUtc = DateTimeOffset.UtcNow
+                            };
+                            if ((processedCount + 1) % 64 == 0)
+                                await _stateReader.WriteAsync(statePath, state, CancellationToken.None).ConfigureAwait(false);
+                        }
+                        progress.Report(100d * ++processedCount / candidates.Length);
+                    }
+                }
+                finally
+                {
+                    if (writeEnabled)
+                    {
+                        state.UpdatedUtc = DateTimeOffset.UtcNow;
+                        await _stateReader.WriteAsync(statePath, state, CancellationToken.None).ConfigureAwait(false);
+                    }
+                }
+                report = report with { Candidates = resolved };
             }
             finally
             {
-                processingLock.Dispose();
+                _auditService.ProcessingGate.Release();
             }
         }
 

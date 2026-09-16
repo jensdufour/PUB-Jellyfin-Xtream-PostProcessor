@@ -1,69 +1,44 @@
-using Jellyfin.Plugin.XtreamPostProcessor.Planning;
 using Jellyfin.Plugin.XtreamPostProcessor.Services;
-using Jellyfin.Plugin.XtreamPostProcessor.Configuration;
+using Jellyfin.Plugin.XtreamPostProcessor.Sync;
+using MediaBrowser.Model.Tasks;
 
 namespace Jellyfin.Plugin.XtreamPostProcessor.Tests;
 
 public sealed class IndexingSafetyTests
 {
     [Fact]
-    public void ChangedSourceRootsIgnoreFoldersWithoutStrmFiles()
+    public void BlankMetadataPreferencesFallBackToLibraryThenServer()
     {
-        var root = Path.Combine(Path.GetTempPath(), $"xtream-{Guid.NewGuid():N}");
-        var emptyRoot = Path.Combine(root, "Movies", "EN - - Example (2026) [tmdbid-42]");
-        var mediaRoot = Path.Combine(root, "Movies", "EN - Example (2026) [tmdbid-42]");
-        Directory.CreateDirectory(emptyRoot);
-        Directory.CreateDirectory(mediaRoot);
-        File.WriteAllText(Path.Combine(emptyRoot, "Example.nfo"), "metadata only");
-        File.WriteAllText(Path.Combine(mediaRoot, "Example.strm"), "https://example.invalid/stream");
-
-        try
-        {
-            var changed = LibraryAuditService.ChangedSourceRoots(
-                new PluginConfiguration { XtreamRoot = root },
-                DateTimeOffset.UtcNow.AddMinutes(-1));
-
-            Assert.Equal(Path.GetFullPath(mediaRoot), Assert.Single(changed));
-        }
-        finally
-        {
-            Directory.Delete(root, true);
-        }
+        Assert.Equal("fr", LibraryAuditService.FirstConfigured("", "fr", "en"));
+        Assert.Equal("en", LibraryAuditService.FirstConfigured(null, " ", "en"));
+        Assert.Equal("nl", LibraryAuditService.FirstConfigured("nl", "fr", "en"));
     }
 
     [Fact]
-    public void DoesNotCollapseDistinctRootsByTmdbIdentity()
+    public void RequiresSuccessfulScanAfterSuccessfulSync()
     {
-        var root = Path.Combine(Path.GetTempPath(), "xtream");
-        var changed = Path.Combine(root, "Movies", "Provider A Example [tmdbid-42]");
-        var indexed = Item(
-            Path.Combine(root, "Movies", "Provider B Example [tmdbid-42]", "Example.strm"),
-            "42");
-
-        Assert.Equal(
-            Path.GetFullPath(changed),
-            Assert.Single(LibraryAuditService.PendingChangedRoots([changed], [indexed])));
+        var ended = DateTimeOffset.UtcNow;
+        var sync = new XtreamSyncResult { Success = true, EndTime = ended };
+        var scan = new TaskResult { Status = TaskCompletionStatus.Completed, StartTimeUtc = ended.UtcDateTime, EndTimeUtc = ended.UtcDateTime.AddSeconds(1) };
+        Assert.True(LibraryAuditService.IsReady(sync, scan, false));
+        Assert.False(LibraryAuditService.IsReady(sync, scan, true));
+        Assert.False(LibraryAuditService.IsReady(null, scan, false));
+        Assert.False(LibraryAuditService.IsReady(sync, null, false));
+        Assert.False(LibraryAuditService.IsReady(new XtreamSyncResult { EndTime = ended }, scan, false));
+        scan.StartTimeUtc = ended.UtcDateTime.AddSeconds(-1);
+        Assert.False(LibraryAuditService.IsReady(sync, scan, false));
+        scan.StartTimeUtc = ended.UtcDateTime;
+        scan.EndTimeUtc = ended.UtcDateTime.AddSeconds(-1);
+        Assert.False(LibraryAuditService.IsReady(sync, scan, false));
     }
 
-    [Fact]
-    public void RetainsUnrepresentedChangedRoots()
+    [Theory]
+    [InlineData(TaskCompletionStatus.Cancelled)]
+    [InlineData(TaskCompletionStatus.Failed)]
+    [InlineData(TaskCompletionStatus.Aborted)]
+    public void FailedOrCancelledScanNeverAuthorizesWrites(TaskCompletionStatus status)
     {
-        var root = Path.Combine(Path.GetTempPath(), "xtream");
-        var changed = Path.Combine(root, "Series", "New [tmdbid-99]");
-
-        Assert.Equal(
-            Path.GetFullPath(changed),
-            Assert.Single(LibraryAuditService.PendingChangedRoots([changed], [])));
+        var sync = new XtreamSyncResult { Success = true, EndTime = DateTimeOffset.UtcNow.AddMinutes(-1) };
+        Assert.False(LibraryAuditService.IsReady(sync, new TaskResult { Status = status, EndTimeUtc = DateTime.UtcNow }, false));
     }
-
-    private static LibraryItemSnapshot Item(string path, string tmdbId) => new(
-        Guid.NewGuid().ToString("D"),
-        "MediaBrowser.Controller.Entities.Movies.Movie",
-        "Example",
-        null,
-        path,
-        null,
-        tmdbId,
-        DateTime.UtcNow,
-        false);
 }

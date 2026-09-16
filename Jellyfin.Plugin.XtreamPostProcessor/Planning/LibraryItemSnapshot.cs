@@ -10,4 +10,9 @@ internal sealed record LibraryItemSnapshot(
     string? TmdbId,
     DateTime DateCreated,
     bool IsSeries,
-    DateTime DateLastRefreshed = default);
+    DateTime DateLastRefreshed = default,
+    string? MetadataLanguage = null,
+    string? MetadataCountryCode = null,
+    bool TitleLocked = false,
+    bool FillMissingOverview = false,
+    DateTime? DateLastMediaAdded = null);

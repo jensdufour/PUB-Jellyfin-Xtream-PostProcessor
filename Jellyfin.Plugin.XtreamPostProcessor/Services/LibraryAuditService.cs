@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using Jellyfin.Data.Enums;
 using Jellyfin.Plugin.XtreamPostProcessor.Configuration;
 using Jellyfin.Plugin.XtreamPostProcessor.Normalization;
@@ -6,21 +5,26 @@ using Jellyfin.Plugin.XtreamPostProcessor.Planning;
 using Jellyfin.Plugin.XtreamPostProcessor.State;
 using Jellyfin.Plugin.XtreamPostProcessor.Sync;
 using MediaBrowser.Common.Configuration;
+using MediaBrowser.Controller.Configuration;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.Library;
+using MediaBrowser.Model.Tasks;
 
 namespace Jellyfin.Plugin.XtreamPostProcessor.Services;
 
 /// <summary>
 /// Builds processing plans from Jellyfin's supported library interface.
 /// </summary>
-public sealed class LibraryAuditService
+public sealed class LibraryAuditService : IDisposable
 {
     private readonly ILibraryManager _libraryManager;
     private readonly IApplicationPaths _applicationPaths;
     private readonly SyncHistoryReader _syncHistoryReader;
     private readonly EnrichmentStateReader _stateReader;
+    private readonly IServerConfigurationManager _serverConfiguration;
+    private readonly ITaskManager _taskManager;
+    internal SemaphoreSlim ProcessingGate { get; } = new(1, 1);
 
     /// <summary>
     /// Initializes a new instance of the <see cref="LibraryAuditService"/> class.
@@ -29,12 +33,16 @@ public sealed class LibraryAuditService
         ILibraryManager libraryManager,
         IApplicationPaths applicationPaths,
         SyncHistoryReader syncHistoryReader,
-        EnrichmentStateReader stateReader)
+        EnrichmentStateReader stateReader,
+        IServerConfigurationManager serverConfiguration,
+        ITaskManager taskManager)
     {
         _libraryManager = libraryManager;
         _applicationPaths = applicationPaths;
         _syncHistoryReader = syncHistoryReader;
         _stateReader = stateReader;
+        _serverConfiguration = serverConfiguration;
+        _taskManager = taskManager;
     }
 
     internal async Task<EnrichmentAuditReport> AuditEnrichmentAsync(CancellationToken cancellationToken)
@@ -61,7 +69,8 @@ public sealed class LibraryAuditService
         var configuration = Configuration();
         var sync = await ReadLatestSyncAsync(configuration, cancellationToken).ConfigureAwait(false);
         var items = ReadItems(configuration);
-        var candidates = CandidatePlanner.PlanNormalization(items);
+        var state = await _stateReader.ReadAsync(ResolveOwnedStatePath("xtream-post-processor/title-state.json"), cancellationToken).ConfigureAwait(false);
+        var candidates = CandidatePlanner.PlanNormalization(items, state, configuration.RetryFailed);
         return new NormalizationAuditReport(sync, items.Count, candidates);
     }
 
@@ -70,66 +79,39 @@ public sealed class LibraryAuditService
         XtreamSyncResult expectedSync,
         CancellationToken cancellationToken)
     {
-        if (configuration.IndexingStableSeconds < 0
-            || configuration.IndexingTimeoutSeconds < 1
-            || configuration.MaxUnindexedChangedRoots < 0)
-        {
-            throw new InvalidOperationException("Indexing limits must be non-negative and timeout must be positive");
-        }
-
-        var changedRoots = ChangedSourceRoots(configuration, expectedSync.StartTime);
-        if (changedRoots.Count == 0)
-        {
-            await EnsureExpectedSyncAsync(configuration, expectedSync, cancellationToken).ConfigureAwait(false);
-            return;
-        }
-
-        var stableWindow = TimeSpan.FromSeconds(configuration.IndexingStableSeconds);
-        var timeout = TimeSpan.FromSeconds(configuration.IndexingTimeoutSeconds);
-        var started = Stopwatch.GetTimestamp();
-        var stableSince = started;
-        var items = ReadItems(configuration);
-        var previous = InventorySignature(items);
-        while (true)
-        {
-            await EnsureExpectedSyncAsync(configuration, expectedSync, cancellationToken).ConfigureAwait(false);
-            items = ReadItems(configuration);
-            var current = InventorySignature(items);
-            if (current != previous)
-            {
-                previous = current;
-                stableSince = Stopwatch.GetTimestamp();
-            }
-
-            var pending = PendingChangedRoots(changedRoots, items);
-            var elapsed = Stopwatch.GetElapsedTime(started);
-            if (elapsed >= timeout)
-            {
-                throw new TimeoutException(
-                    $"Jellyfin indexing did not stabilize within {configuration.IndexingTimeoutSeconds} seconds; "
-                    + $"pendingRoots={pending.Count} sample={string.Join(", ", pending.Take(5))}");
-            }
-
-            if (Stopwatch.GetElapsedTime(stableSince) >= stableWindow)
-            {
-                if (pending.Count > configuration.MaxUnindexedChangedRoots)
-                {
-                    throw new InvalidOperationException(
-                        $"Refusing enrichment with {pending.Count} unindexed changed roots; "
-                        + $"maximum={configuration.MaxUnindexedChangedRoots} sample={string.Join(", ", pending.Take(5))}");
-                }
-
-                if (pending.Count == 0)
-                {
-                    return;
-                }
-            }
-
-            var remaining = timeout - elapsed;
-            await Task.Delay(remaining < TimeSpan.FromSeconds(10) ? remaining : TimeSpan.FromSeconds(10), cancellationToken)
-                .ConfigureAwait(false);
-        }
+        await EnsureExpectedSyncAsync(configuration, expectedSync, cancellationToken).ConfigureAwait(false);
+        if (!CanProcess(expectedSync)) throw new InvalidOperationException("Processing deferred until sync and indexing have completed successfully");
     }
+
+    internal bool CanProcess(XtreamSyncResult? sync)
+    {
+        var tasks = _taskManager.ScheduledTasks.ToArray();
+        var scan = tasks.FirstOrDefault(task => task.ScheduledTask.Key == "RefreshLibrary")?.LastExecutionResult;
+        var busy = _libraryManager.IsScanRunning || tasks.Any(task =>
+            task.ScheduledTask.Key is "RefreshLibrary" or "XtreamLibrarySync" or "MergeMoviesTask" or "MergeEpisodesTask"
+            && task.State != TaskState.Idle);
+        return IsReady(sync, scan, busy);
+    }
+
+    internal async Task EnsureCanWriteAsync(
+        PluginConfiguration expectedConfiguration,
+        XtreamSyncResult expectedSync,
+        CancellationToken cancellationToken)
+    {
+        await WaitForIndexingAsync(expectedConfiguration, expectedSync, cancellationToken).ConfigureAwait(false);
+        var current = Plugin.Instance?.Configuration;
+        if (!ReferenceEquals(current, expectedConfiguration) || current?.Enabled != true || current.AuditOnly)
+            throw new OperationCanceledException("Post-processing configuration changed; start a new task with the saved settings", cancellationToken);
+    }
+
+    internal static bool IsReady(XtreamSyncResult? sync, TaskResult? scan, bool busy) =>
+        !busy && sync?.Success == true && sync.EndTime != default
+        && scan?.Status == TaskCompletionStatus.Completed
+        && scan.StartTimeUtc >= (sync.RequiredScanAfter ?? sync.EndTime).UtcDateTime
+        && scan.EndTimeUtc >= scan.StartTimeUtc;
+
+    /// <inheritdoc />
+    public void Dispose() => ProcessingGate.Dispose();
 
     internal string ResolveDataPath(string configuredPath) => Path.GetFullPath(Path.IsPathRooted(configuredPath)
         ? configuredPath
@@ -153,10 +135,7 @@ public sealed class LibraryAuditService
         return path;
     }
 
-    internal string ResolveProcessingLockPath() =>
-        ResolveOwnedStatePath("xtream-post-processor/processor.lock");
-
-    private async Task<XtreamSyncResult?> ReadLatestSyncAsync(
+    internal async Task<XtreamSyncResult?> ReadLatestSyncAsync(
         PluginConfiguration configuration,
         CancellationToken cancellationToken)
     {
@@ -194,9 +173,16 @@ public sealed class LibraryAuditService
                 item.ProviderIds.TryGetValue("Tmdb", out var tmdbId) ? tmdbId : null,
                 item.DateCreated,
                 item is Series,
-                item.DateLastRefreshed))
+                item.DateLastRefreshed,
+                FirstConfigured(item.PreferredMetadataLanguage, _libraryManager.GetLibraryOptions(item).PreferredMetadataLanguage, _serverConfiguration.Configuration.PreferredMetadataLanguage),
+                FirstConfigured(item.PreferredMetadataCountryCode, _libraryManager.GetLibraryOptions(item).MetadataCountryCode, _serverConfiguration.Configuration.MetadataCountryCode),
+                item.IsLocked || item.LockedFields.Contains(MediaBrowser.Model.Entities.MetadataField.Name),
+                configuration.FillMissingOverview,
+                item is Series series ? series.DateLastMediaAdded : null))
             .ToArray();
     }
+
+    internal static string? FirstConfigured(params string?[] values) => values.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value));
 
     private async Task EnsureExpectedSyncAsync(
         PluginConfiguration configuration,
@@ -211,45 +197,10 @@ public sealed class LibraryAuditService
         }
     }
 
-    internal static IReadOnlyList<string> ChangedSourceRoots(
-        PluginConfiguration configuration,
-        DateTimeOffset syncStarted)
-    {
-        var cutoff = syncStarted.UtcDateTime.AddSeconds(-5);
-        return CanonicalRoots(configuration)
-            .SelectMany(root => Directory.EnumerateDirectories(root.Path, "*", SearchOption.TopDirectoryOnly))
-            .Where(path =>
-            {
-                var directory = new DirectoryInfo(path);
-                return directory.LastWriteTimeUtc >= cutoff || directory.CreationTimeUtc >= cutoff;
-            })
-            .Where(path => Directory.EnumerateFiles(path, "*", SearchOption.AllDirectories)
-                .Any(file => string.Equals(Path.GetExtension(file), ".strm", StringComparison.OrdinalIgnoreCase)))
-            .Select(Path.GetFullPath)
-            .Order(StringComparer.Ordinal)
-            .ToArray();
-    }
-
-    internal static IReadOnlyList<string> PendingChangedRoots(
-        IReadOnlyList<string> changedRoots,
-        IReadOnlyList<LibraryItemSnapshot> items)
-    {
-        var comparer = OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
-        var indexedRoots = items
-            .Select(item => Path.GetFullPath(item.IsSeries ? item.Path : Path.GetDirectoryName(item.Path)!))
-            .ToHashSet(comparer);
-
-        return changedRoots
-            .Where(path => !indexedRoots.Contains(path))
-            .Where(path => !indexedRoots.Contains(Path.Combine(
-                Path.GetDirectoryName(path)!,
-                TitleNormalizer.StripProviderPrefixes(Path.GetFileName(path)))))
-            .Order(comparer)
-            .ToArray();
-    }
-
     private static IReadOnlyList<(string Path, string Prefix)> CanonicalRoots(PluginConfiguration configuration)
     {
+        if (string.IsNullOrWhiteSpace(configuration.XtreamRoot) || !Path.IsPathFullyQualified(configuration.XtreamRoot))
+            throw new InvalidOperationException("Configure an absolute Xtream media root before processing");
         var configuredRoot = Path.GetFullPath(configuration.XtreamRoot)
             .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
         if (string.Equals(
@@ -273,13 +224,6 @@ public sealed class LibraryAuditService
 
         return roots;
     }
-
-    private static (int Count, DateTime Created, DateTime Refreshed) InventorySignature(
-        IReadOnlyList<LibraryItemSnapshot> items) =>
-        (
-            items.Count,
-            items.Count == 0 ? default : items.Max(item => item.DateCreated),
-            items.Count == 0 ? default : items.Max(item => item.DateLastRefreshed));
 
     private static PluginConfiguration Configuration() =>
         Plugin.Instance?.Configuration ?? new PluginConfiguration();

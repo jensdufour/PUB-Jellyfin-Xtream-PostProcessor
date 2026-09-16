@@ -14,7 +14,6 @@ public sealed class EnrichXtreamTask : IScheduledTask, IConfigurableScheduledTas
     private readonly AuditReportWriter _reportWriter;
     private readonly LibraryWriteService _writeService;
     private readonly EnrichmentStateReader _stateReader;
-    private readonly DeferredTaskScheduler _deferredTasks;
     private readonly ILogger<EnrichXtreamTask> _logger;
 
     /// <summary>
@@ -25,14 +24,12 @@ public sealed class EnrichXtreamTask : IScheduledTask, IConfigurableScheduledTas
         AuditReportWriter reportWriter,
         LibraryWriteService writeService,
         EnrichmentStateReader stateReader,
-        DeferredTaskScheduler deferredTasks,
         ILogger<EnrichXtreamTask> logger)
     {
         _auditService = auditService;
         _reportWriter = reportWriter;
         _writeService = writeService;
         _stateReader = stateReader;
-        _deferredTasks = deferredTasks;
         _logger = logger;
     }
 
@@ -79,9 +76,7 @@ public sealed class EnrichXtreamTask : IScheduledTask, IConfigurableScheduledTas
         if (writeEnabled)
         {
             var expectedSyncIdentity = report.SyncResult!.Identity;
-            var processingLock = await CrossProcessFileLock.AcquireAsync(
-                _auditService.ResolveProcessingLockPath(),
-                cancellationToken).ConfigureAwait(false);
+            await _auditService.ProcessingGate.WaitAsync(cancellationToken).ConfigureAwait(false);
             try
             {
                 await _auditService.WaitForIndexingAsync(configuration, report.SyncResult!, cancellationToken).ConfigureAwait(false);
@@ -139,6 +134,7 @@ public sealed class EnrichXtreamTask : IScheduledTask, IConfigurableScheduledTas
                     async (candidate, token) =>
                     {
                         token.ThrowIfCancellationRequested();
+                        await _auditService.WaitForIndexingAsync(configuration, report.SyncResult!, token).ConfigureAwait(false);
                         EnrichmentStateItem outcome;
                         if (candidate.InvalidProviderId)
                         {
@@ -159,7 +155,8 @@ public sealed class EnrichXtreamTask : IScheduledTask, IConfigurableScheduledTas
                                 var result = await _writeService.ApplyEnrichmentAsync(
                                     candidate,
                                     configuration.FallbackLanguages,
-                                    token).ConfigureAwait(false);
+                                    token,
+                                    () => _auditService.EnsureCanWriteAsync(configuration, report.SyncResult!, token)).ConfigureAwait(false);
                                 if (result.Succeeded)
                                 {
                                     Interlocked.Increment(ref completedCount);
@@ -215,7 +212,7 @@ public sealed class EnrichXtreamTask : IScheduledTask, IConfigurableScheduledTas
             }
             finally
             {
-                processingLock.Dispose();
+                _auditService.ProcessingGate.Release();
             }
         }
 
@@ -244,11 +241,5 @@ public sealed class EnrichXtreamTask : IScheduledTask, IConfigurableScheduledTas
             throw new InvalidOperationException($"Failed to enrich {failureCount} Xtream items");
         }
 
-        if (report.SyncResult?.Success == true
-            && string.IsNullOrWhiteSpace(configuration.WriteItemId)
-            && configuration.WriteBatchSize == 0)
-        {
-            _deferredTasks.QueueNormalization();
-        }
     }
 }

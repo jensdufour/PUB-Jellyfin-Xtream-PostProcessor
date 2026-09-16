@@ -22,8 +22,12 @@ public sealed class SyncHistoryReader
             JsonOptions,
             cancellationToken).ConfigureAwait(false);
 
-        return results?
+        var ordered = results?
             .Where(result => result.StartTime != default && result.EndTime != default)
-            .MaxBy(result => result.EndTime);
+            .OrderByDescending(result => result.EndTime).ToArray();
+        if (ordered is null || ordered.Length == 0) return null;
+        var latest = ordered[0];
+        latest.RequiredScanAfter = ordered.FirstOrDefault(result => !result.KnownUnchanged)?.EndTime ?? ordered[^1].StartTime;
+        return latest;
     }
 }
