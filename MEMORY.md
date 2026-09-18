@@ -3,6 +3,12 @@
 - 0.4.0.0 adds opt-in native follow-up sequencing to the existing watcher, not a
   separate daemon. Native task order: Normalize, MergeMovies, MergeEpisodes,
   full Meilisearch index. Xtream remains the sync/scan scheduler.
+- September18 live0.4.0 repository installation, activation and configuration
+  wakeup passed on Jellyfin12.1. Actual task times prove title -> movie -> episode
+  -> search ordering; the checkpoint reached completed/4. No new sync/scan was
+  launched. Backend queue subsequently drained; users/history/settings preserved.
+ 62 source tests and settings load/save check passed. Details and recovery artifacts
+  belong to the deployment runbook, not this portable plugin repository.
 - Require Merge Versions>=12.0.1 (awaited native writes), unrestricted title write
   configuration and empty downstream triggers. Never edit users' schedules from
   plugin code; remove conflicting timers as a backed-up deployment step.
@@ -12,7 +18,7 @@
   Search backend queue draining is not implied by its native task completion.
 - 0.3.0.0 production title/NFO writes, preserving history/identity/media, were
   verified September17-18. Earlier unreleased/deployment-pending notes below are
-  historical. 0.4.0 flow activation still requires repository deployment verification.
+  historical; current0.4.0 activation and native flow are verified as recorded above.
 
 - Source 0.3.0.0 is an unreleased Jellyfin 12/.NET 10 candidate. API packages
   12.0.0 were available; 12.1.0 was unavailable on the configured feed. Local

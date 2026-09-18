@@ -6,7 +6,10 @@ and the Jellyfin 12.0 API baseline. The selected rollout is repository installat
 on Jellyfin 12.1 when native writers are idle.
 Release tags build and publish the package and catalog through GitHub Actions.
 Version0.3.0 title writes and preservation checks were verified in production;
-the new optional flow requires its own activation/readback.
+the optional0.4.0 flow also passed live Jellyfin12.1 activation and native task-order
+verification on2026-09-18. Titles, movie merge, episode merge and search completed
+without a new scan; backend search completion and preserved history/settings were
+checked separately. The Release build passes62 tests.
 
 Audit-only is the default. No daemon, external title writer, direct database
 access, or additional synchronization schedule is required.
