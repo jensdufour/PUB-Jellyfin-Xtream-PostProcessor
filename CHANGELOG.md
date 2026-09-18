@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.4.0.0
+
+- Add opt-in `RunLibraryFlow`: after a successful sync and qualifying scan, await title normalization, movie merging, episode merging and Meilisearch's full-index task in order.
+- Require unrestricted metadata writes, all four native tasks, Merge Versions12.0.1 or newer, and no independent downstream triggers. Preserve the Xtream schedule and never start a scan.
+- Persist sync/scan identity and task start time before each stage. Skip completed cycles; stop on failures, cancellation, stale/ambiguous restart results or changed readiness/settings.
+- Wake on saved configuration and coalesce completion events. Check busy writers and timers at handoffs; no recurring daemon or separate scheduler.
+- Search task completion means the native indexing task returned; backend queue completion remains a separate Meilisearch health check. Manual or external jobs are not globally locked by this plugin.
+
 ## 0.3.0.0
 
 - Target .NET 10 and Jellyfin 12.0 APIs; leave the published 10.11 catalog unchanged.

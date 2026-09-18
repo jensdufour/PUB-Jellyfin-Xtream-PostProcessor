@@ -20,6 +20,142 @@ namespace Jellyfin.Plugin.XtreamPostProcessor.Tests;
 
 public sealed class SyncCompletionTests
 {
+    [Theory]
+    [InlineData(-1)]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(2)]
+    [InlineData(3)]
+    public async Task NativeFlowAwaitsEachStageAndStopsOnFailure(int failedStage)
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "xtream-flow-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        try
+        {
+            var path = Path.Combine(directory, "flow.json");
+            var called = new List<string>();
+            var results = new Dictionary<string, TaskResult>();
+            var workers = NativeLibraryFlow.TaskKeys.Select(key => InterfaceStub.Create<IScheduledTaskWorker>((method, _) => method.Name switch
+            {
+                "get_ScheduledTask" => InterfaceStub.Create<IScheduledTask>((_, _) => key),
+                "get_State" => TaskState.Idle,
+                "get_Triggers" => Array.Empty<TaskTriggerInfo>(),
+                "get_LastExecutionResult" => results.GetValueOrDefault(key),
+                _ => throw new NotImplementedException(method.Name)
+            })).ToArray();
+            var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            async Task Execute(IScheduledTaskWorker worker)
+            {
+                var key = worker.ScheduledTask.Key;
+                var started = DateTime.UtcNow;
+                called.Add(key);
+                entered.TrySetResult();
+                await release.Task;
+                results[key] = new TaskResult { StartTimeUtc = started, EndTimeUtc = DateTime.UtcNow,
+                    Status = called.Count - 1 == failedStage ? TaskCompletionStatus.Failed : TaskCompletionStatus.Completed };
+            }
+            var manager = InterfaceStub.Create<ITaskManager>((method, arguments) => method.Name switch
+            {
+                "get_ScheduledTasks" => workers,
+                "Execute" => Execute((IScheduledTaskWorker)arguments![0]!),
+                _ => throw new NotImplementedException(method.Name)
+            });
+            var flow = new NativeLibraryFlow(manager, path, NullLogger.Instance);
+            var running = flow.RunAsync("cycle-one", _ => Task.CompletedTask, CancellationToken.None);
+            await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.Single(called);
+            Assert.False(running.IsCompleted);
+            release.SetResult();
+            if (failedStage < 0) await running;
+            else await Assert.ThrowsAsync<InvalidOperationException>(() => running);
+            Assert.Equal(NativeLibraryFlow.TaskKeys.Take(failedStage < 0 ? 4 : failedStage + 1), called);
+            var checkpoint = System.Text.Json.JsonSerializer.Deserialize<NativeLibraryFlow.Checkpoint>(await File.ReadAllTextAsync(path))!;
+            Assert.Equal(failedStage < 0 ? "completed" : "failed", checkpoint.Status);
+            await new NativeLibraryFlow(manager, path, NullLogger.Instance).RunAsync("cycle-one", _ => Task.CompletedTask, CancellationToken.None);
+            Assert.Equal(failedStage < 0 ? 4 : failedStage + 1, called.Count);
+        }
+        finally { Directory.Delete(directory, true); }
+    }
+
+    [Theory]
+    [InlineData("running-success")]
+    [InlineData("running-stale")]
+    [InlineData("running-failed")]
+    [InlineData("running-cancelled")]
+    [InlineData("running-aborted")]
+    [InlineData("busy")]
+    [InlineData("timer")]
+    [InlineData("new-cycle")]
+    [InlineData("changed-sync")]
+    [InlineData("changed-timer")]
+    [InlineData("cancelled")]
+    public async Task NativeFlowRecoveryAndSafetyGates(string scenario)
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "xtream-flow-guards-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        try
+        {
+            var path = Path.Combine(directory, "flow.json");
+            var requested = DateTime.UtcNow.AddMinutes(-2);
+            var recovering = scenario.StartsWith("running-", StringComparison.Ordinal);
+            var state = new NativeLibraryFlow.Checkpoint
+            {
+                Cycle = "cycle-one", NextStage = recovering ? 1 : 0,
+                Status = recovering ? "running" : scenario == "new-cycle" ? "completed" : "ready", RequestedUtc = requested
+            };
+            await File.WriteAllTextAsync(path, System.Text.Json.JsonSerializer.Serialize(state));
+            var results = new Dictionary<string, TaskResult>
+            {
+                ["MergeMoviesTask"] = new TaskResult
+                {
+                    Status = scenario switch { "running-failed" => TaskCompletionStatus.Failed, "running-cancelled" => TaskCompletionStatus.Cancelled,
+                        "running-aborted" => TaskCompletionStatus.Aborted, _ => TaskCompletionStatus.Completed },
+                    StartTimeUtc = scenario == "running-stale" ? requested.AddMinutes(-10) : requested.AddSeconds(1),
+                    EndTimeUtc = requested.AddMinutes(1)
+                }
+            };
+            var calls = new List<string>();
+            var workers = NativeLibraryFlow.TaskKeys.Select(key => InterfaceStub.Create<IScheduledTaskWorker>((method, _) => method.Name switch
+            {
+                "get_ScheduledTask" => InterfaceStub.Create<IScheduledTask>((_, _) => key),
+                "get_State" => scenario == "busy" && key == "MergeEpisodesTask" ? TaskState.Running : TaskState.Idle,
+                "get_Triggers" => scenario == "timer" || (scenario == "changed-timer" && calls.Count > 0) ? new[] { new TaskTriggerInfo() } : Array.Empty<TaskTriggerInfo>(),
+                "get_LastExecutionResult" => results.GetValueOrDefault(key),
+                _ => throw new NotImplementedException(method.Name)
+            })).ToArray();
+            object Execute(IScheduledTaskWorker worker)
+            {
+                var key = worker.ScheduledTask.Key;
+                calls.Add(key);
+                results[key] = new TaskResult { Status = TaskCompletionStatus.Completed, StartTimeUtc = DateTime.UtcNow, EndTimeUtc = DateTime.UtcNow };
+                return Task.CompletedTask;
+            }
+            var manager = InterfaceStub.Create<ITaskManager>((method, arguments) => method.Name switch
+            {
+                "get_ScheduledTasks" => workers,
+                "Execute" => Execute((IScheduledTaskWorker)arguments![0]!),
+                _ => throw new NotImplementedException(method.Name)
+            });
+            using var cancellation = new CancellationTokenSource();
+            if (scenario == "cancelled") cancellation.Cancel();
+            Task Ensure(CancellationToken token)
+            {
+                token.ThrowIfCancellationRequested();
+                if (scenario == "changed-sync" && calls.Count > 0) throw new InvalidOperationException("New sync superseded the current flow");
+                return Task.CompletedTask;
+            }
+            var operation = new NativeLibraryFlow(manager, path, NullLogger.Instance).RunAsync(
+                scenario == "new-cycle" ? "cycle-two" : "cycle-one", Ensure, cancellation.Token);
+            if (scenario is "running-success" or "new-cycle") await operation;
+            else if (scenario == "cancelled") await Assert.ThrowsAnyAsync<OperationCanceledException>(() => operation);
+            else await Assert.ThrowsAsync<InvalidOperationException>(() => operation);
+            Assert.Equal(scenario switch { "running-success" => 2, "new-cycle" => 4, "changed-sync" or "changed-timer" => 1, _ => 0 }, calls.Count);
+            if (scenario == "running-success") Assert.Equal(NativeLibraryFlow.TaskKeys.Skip(2), calls);
+        }
+        finally { Directory.Delete(directory, true); }
+    }
+
     [Fact]
     public async Task CoalescesEventsWaitsForIndexingAndRecoversAfterRestart()
     {
@@ -85,6 +221,19 @@ public sealed class SyncCompletionTests
             Assert.Equal(2, queued);
             using var restarted = new XtreamSyncWatcher(manager, audit, NullLogger<XtreamSyncWatcher>.Instance);
             await restarted.ProcessPendingAsync(configuration, CancellationToken.None);
+            Assert.Equal(3, queued);
+            configuration.RunLibraryFlow = true;
+            restarted.OnTaskCompleted(null, completion);
+            await Assert.ThrowsAsync<InvalidOperationException>(() => restarted.ProcessPendingAsync(configuration, CancellationToken.None));
+            configuration.AuditOnly = false;
+            configuration.WriteBatchSize = 5;
+            await Assert.ThrowsAsync<InvalidOperationException>(() => restarted.ProcessPendingAsync(configuration, CancellationToken.None));
+            configuration.WriteBatchSize = 0;
+            configuration.WriteItemId = Guid.NewGuid().ToString();
+            await Assert.ThrowsAsync<InvalidOperationException>(() => restarted.ProcessPendingAsync(configuration, CancellationToken.None));
+            configuration.WriteItemId = string.Empty;
+            var missingMerge = await Assert.ThrowsAsync<InvalidOperationException>(() => restarted.ProcessPendingAsync(configuration, CancellationToken.None));
+            Assert.Contains("Merge Versions 12.0.1", missingMerge.Message);
             Assert.Equal(3, queued);
         }
         finally { Directory.Delete(directory, true); }

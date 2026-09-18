@@ -13,6 +13,7 @@ public sealed class PluginConfigurationTests
 
         Assert.True(configuration.Enabled);
         Assert.True(configuration.AuditOnly);
+        Assert.False(configuration.RunLibraryFlow);
         Assert.Empty(configuration.XtreamRoot);
         Assert.Equal("xtream-library/sync_history.json", configuration.SyncHistoryRelativePath);
         Assert.Equal("xtream-post-processor/enrichment-state.json", configuration.StateRelativePath);

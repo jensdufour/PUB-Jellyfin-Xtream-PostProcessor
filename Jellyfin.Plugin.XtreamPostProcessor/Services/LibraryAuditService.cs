@@ -89,6 +89,7 @@ public sealed class LibraryAuditService : IDisposable
         var scan = tasks.FirstOrDefault(task => task.ScheduledTask.Key == "RefreshLibrary")?.LastExecutionResult;
         var busy = _libraryManager.IsScanRunning || tasks.Any(task =>
             task.ScheduledTask.Key is "RefreshLibrary" or "XtreamLibrarySync" or "MergeMoviesTask" or "MergeEpisodesTask"
+                or "task-meilisearch-reindex-full"
             && task.State != TaskState.Idle);
         return IsReady(sync, scan, busy);
     }

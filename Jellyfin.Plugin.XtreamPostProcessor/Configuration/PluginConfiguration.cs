@@ -15,6 +15,9 @@ public sealed class PluginConfiguration : BasePluginConfiguration
     /// <summary>Gets or sets a value indicating whether changes are audit-only.</summary>
     public bool AuditOnly { get; set; } = true;
 
+    /// <summary>Gets or sets whether successful title processing is followed by native merges and search indexing.</summary>
+    public bool RunLibraryFlow { get; set; }
+
     /// <summary>Gets or sets whether canonical title processing also fills a missing overview from the same localized result.</summary>
     public bool FillMissingOverview { get; set; }
 

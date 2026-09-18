@@ -26,6 +26,12 @@
                 </div>
                 <div class="checkboxContainer checkboxContainer-withDescription">
                     <label class="emby-checkbox-label">
+                        <input id="RunLibraryFlow" type="checkbox" is="emby-checkbox" />
+                        <span>Run movie merge, episode merge and search after titles</span>
+                    </label>
+                </div>
+                <div class="checkboxContainer checkboxContainer-withDescription">
+                    <label class="emby-checkbox-label">
                         <input id="FillMissingOverview" type="checkbox" is="emby-checkbox" />
                         <span>Fill missing overview with canonical title</span>
                     </label>
@@ -88,6 +94,7 @@
                 ApiClient.getPluginConfiguration(pluginId).then(function (config) {
                     document.querySelector('#Enabled').checked = config.Enabled;
                     document.querySelector('#AuditOnly').checked = config.AuditOnly;
+                    document.querySelector('#RunLibraryFlow').checked = config.RunLibraryFlow === true;
                     document.querySelector('#FillMissingOverview').checked = config.FillMissingOverview;
                     document.querySelector('#RetryFailed').checked = config.RetryFailed;
                     document.querySelector('#SyncHistoryRelativePath').value = config.SyncHistoryRelativePath;
@@ -106,6 +113,7 @@
                 ApiClient.getPluginConfiguration(pluginId).then(function (config) {
                     config.Enabled = document.querySelector('#Enabled').checked;
                     config.AuditOnly = document.querySelector('#AuditOnly').checked;
+                    config.RunLibraryFlow = document.querySelector('#RunLibraryFlow').checked;
                     config.FillMissingOverview = document.querySelector('#FillMissingOverview').checked;
                     config.RetryFailed = document.querySelector('#RetryFailed').checked;
                     config.SyncHistoryRelativePath = document.querySelector('#SyncHistoryRelativePath').value;

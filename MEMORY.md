@@ -1,5 +1,19 @@
 # Xtream Post Processor Decisions
 
+- 0.4.0.0 adds opt-in native follow-up sequencing to the existing watcher, not a
+  separate daemon. Native task order: Normalize, MergeMovies, MergeEpisodes,
+  full Meilisearch index. Xtream remains the sync/scan scheduler.
+- Require Merge Versions>=12.0.1 (awaited native writes), unrestricted title write
+  configuration and empty downstream triggers. Never edit users' schedules from
+  plugin code; remove conflicting timers as a backed-up deployment step.
+- Atomic library-flow.json checkpoints bind sync+scan and current task timestamp.
+  Same-cycle completed/failed states do not replay; uncertain interrupted runs stop.
+  No global transaction against external/manual writers; recheck guards at handoffs.
+  Search backend queue draining is not implied by its native task completion.
+- 0.3.0.0 production title/NFO writes, preserving history/identity/media, were
+  verified September17-18. Earlier unreleased/deployment-pending notes below are
+  historical. 0.4.0 flow activation still requires repository deployment verification.
+
 - Source 0.3.0.0 is an unreleased Jellyfin 12/.NET 10 candidate. API packages
   12.0.0 were available; 12.1.0 was unavailable on the configured feed. Local
   compilation and interface-double tests do not prove live 12.1 write behavior.

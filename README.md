@@ -1,11 +1,12 @@
 # Xtream Post Processor for Jellyfin
 
 Portable Jellyfin 12 plugin for canonical Movie and Series titles after Xtream
-Library synchronization and indexing. Version **0.3.0.0** targets .NET 10
-and the Jellyfin 12.0 API baseline. The selected rollout is direct installation
-on Jellyfin 12.1 after the current scan, without a separate rehearsal environment.
+Library synchronization and indexing. Version **0.4.0.0** targets .NET 10
+and the Jellyfin 12.0 API baseline. The selected rollout is repository installation
+on Jellyfin 12.1 when native writers are idle.
 Release tags build and publish the package and catalog through GitHub Actions.
-Production metadata-write results have not yet been observed.
+Version0.3.0 title writes and preservation checks were verified in production;
+the new optional flow requires its own activation/readback.
 
 Audit-only is the default. No daemon, external title writer, direct database
 access, or additional synchronization schedule is required.
@@ -26,12 +27,12 @@ access, or additional synchronization schedule is required.
 	refresh. Optionally fill a missing unlocked Overview from the same localized
 	result; existing overviews are never replaced.
 - Use one sequential engine for backlog and subsequent changes, atomic title
-	checkpoints, and detailed JSON audit reports. Merge Versions, subtitles and
-	Meilisearch remain separate.
+	checkpoints, and detailed JSON audit reports. Optionally sequence native merge
+	and search tasks after successful title processing; subtitles stay independent.
 
 ## Install
 
-Add this repository in Jellyfin and select **Xtream Post Processor 0.3.0.0**.
+Add this repository in Jellyfin and select **Xtream Post Processor 0.4.0.0**.
 Earlier catalog entries remain available for Jellyfin 10.11; do not select them
 on Jellyfin 12.
 
@@ -50,7 +51,7 @@ package does not require restarting immediately. The task names remain under
 	changing sync. Preserve the database, configuration and affected NFOs through
 	the existing backup procedure; an application-disk backup alone does not
 	cover media on separate mounts. Do not interrupt the running scan to install.
-2. Install version `0.3.0.0` through the repository and leave its restart pending
+2. Install version `0.4.0.0` through the repository and leave its restart pending
 	until the current scan finishes and a restart is approved. On an upgrade,
 	persist `AuditOnly=true` before startup; saved write settings override defaults.
 3. Set the existing absolute Xtream media root, enable the native `TheMovieDb`
@@ -89,6 +90,44 @@ containing `Movies` and/or `Series`. Existing saved root settings are retained.
 | Write batch size (also bounds title audit lookups) | `0` (all candidates) |
 | Write item ID | empty |
 | Audit only | `true` |
+| Run library flow | `false` |
+
+## Optional Ordered Flow
+
+Enable `RunLibraryFlow` only with `Enabled=true`, `AuditOnly=false`, zero
+`WriteBatchSize` and empty `WriteItemId`. Keep Xtream's existing daily sync and
+post-sync scan. Remove independent triggers for title normalization, both merge
+tasks and the full Meilisearch index task before enabling the option. The plugin
+checks those triggers but does not change them. Merge Versions12.0.1 or newer is
+required because its native task completion awaits the actual writes.
+
+The existing watcher awaits these native tasks in order:
+
+```text
+Successful Xtream sync + qualifying full scan
+	-> XtreamPostProcessorNormalize
+	-> MergeMoviesTask
+	-> MergeEpisodesTask
+	-> task-meilisearch-reindex-full
+```
+
+The flow uses `data/xtream-post-processor/library-flow.json` for its sync/scan
+identity, next-stage index, requested timestamp, status and stop reason. It saves
+atomically before starting each stage and checks a fresh successful native result
+before advancing. Duplicate completion events and restarts do not repeat completed
+cycles. A restarted in-flight stage is accepted only if its saved native result
+proves it completed after this flow requested it; otherwise the cycle stops.
+Failure is not silently retried for the same cycle. After correcting the cause,
+disable processing and verify all writers idle before archiving/removing this
+flow checkpoint and re-enabling it to rerun the chain. Keep `title-state.json`.
+A newer successful sync/scan defines a new cycle without manual reset.
+
+Changing settings or sync/scan identity stops subsequent stages. Stopping the
+flow does not roll back completed work or abandon a native save already running.
+This sequences plugin-owned launches; Jellyfin provides no global lock against a
+manual scan, another plugin or the next daily sync. Avoid launching competing jobs.
+The full-index task's completion does not independently certify that Meilisearch's
+asynchronous backend queue is empty. This does not make library scans incremental.
 
 ## Completion And Retry
 
@@ -159,7 +198,7 @@ source checks, not a live Jellyfin 12.1 deployment claim.
 To regenerate the version-checked install ZIP with the existing packaging helper:
 
 ```powershell
-./scripts/package.ps1 -Version 0.3.0.0
+./scripts/package.ps1 -Version 0.4.0.0
 ```
 
 Packages live under ignored `dist/<version>/`; older versions are not removed.
