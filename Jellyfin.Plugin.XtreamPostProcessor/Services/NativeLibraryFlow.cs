@@ -20,7 +20,8 @@ internal sealed class NativeLibraryFlow(ITaskManager taskManager, string statePa
         public string? Error { get; init; }
     }
 
-    internal async Task RunAsync(string cycle, Func<CancellationToken, Task> ensureReady, CancellationToken cancellationToken)
+    internal async Task RunAsync(string cycle, Func<CancellationToken, Task> ensureReady, CancellationToken cancellationToken,
+        Func<CancellationToken, Task>? verifyVersions = null, Func<CancellationToken, Task>? preserveVersions = null)
     {
         var state = File.Exists(statePath)
             ? JsonSerializer.Deserialize<Checkpoint>(await File.ReadAllTextAsync(statePath, cancellationToken).ConfigureAwait(false), JsonOptions)
@@ -48,6 +49,10 @@ internal sealed class NativeLibraryFlow(ITaskManager taskManager, string statePa
                     throw new InvalidOperationException("Independent task triggers changed during the library flow");
                 if (workers.Any(candidate => candidate.State != TaskState.Idle))
                     throw new InvalidOperationException("A library-flow task is already active; no duplicate execution started");
+                if (state.NextStage == 3 && verifyVersions is not null)
+                    await verifyVersions(cancellationToken).ConfigureAwait(false);
+                if (state.NextStage == 0 && state.Status != "running" && preserveVersions is not null)
+                    await preserveVersions(cancellationToken).ConfigureAwait(false);
                 if (state.Status != "running")
                 {
                     state = state with { Status = "running", RequestedUtc = DateTime.UtcNow, Error = null };

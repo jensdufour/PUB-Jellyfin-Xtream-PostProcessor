@@ -202,13 +202,26 @@ public sealed class LibraryWriteService
             }
         }
 
+        return await ApplyChildLabelsAsync(plan.Item with { Name = item.Name }, cancellationToken, beforeWrite).ConfigureAwait(false) || changed;
+    }
+
+    internal async Task<bool> ApplyChildLabelsAsync(LibraryItemSnapshot snapshot, CancellationToken cancellationToken,
+        Func<Task>? beforeWrite = null)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var item = GetLiveItem(snapshot);
+        if (item.IsLocked || item.LockedFields.Contains(MetadataField.Name) || item.Name != snapshot.Name)
+            throw new InvalidOperationException($"Title or lock changed before child-label check for {snapshot.Id}");
+        var changed = false;
         if (item is Series series)
         {
-            var children = _libraryManager.GetItemList(new InternalItemsQuery
+            var query = new InternalItemsQuery
             {
                 Parent = series, IncludeItemTypes = [BaseItemKind.Season, BaseItemKind.Episode],
                 Recursive = true, GroupByPresentationUniqueKey = false, EnableTotalRecordCount = false
-            });
+            };
+            typeof(InternalItemsQuery).GetProperty("IncludeAlternateVersions")?.SetValue(query, true);
+            var children = _libraryManager.GetItemList(query);
             foreach (var child in children)
             {
                 cancellationToken.ThrowIfCancellationRequested();
@@ -216,6 +229,9 @@ public sealed class LibraryWriteService
                 var belongsToSeries = child switch { Season currentSeason => currentSeason.SeriesId == series.Id, Episode currentEpisode => currentEpisode.SeriesId == series.Id, _ => false };
                 if (!belongsToSeries || oldSeriesName == series.Name) continue;
                 if (beforeWrite is not null) await beforeWrite().ConfigureAwait(false);
+                var currentParent = GetLiveItem(snapshot);
+                if (currentParent.Name != snapshot.Name || currentParent.IsLocked || currentParent.LockedFields.Contains(MetadataField.Name))
+                    throw new InvalidOperationException($"Series changed before child-label save for {snapshot.Id}");
                 if (child.IsLocked || child.LockedFields.Contains(MetadataField.Name)) continue;
                 if (child is Season season)
                     season.SeriesName = series.Name;

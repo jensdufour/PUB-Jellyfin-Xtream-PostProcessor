@@ -110,34 +110,44 @@ public sealed class NormalizeXtreamTask : IScheduledTask, IConfigurableScheduled
                         cancellationToken.ThrowIfCancellationRequested();
                         await _auditService.WaitForIndexingAsync(configuration, report.SyncResult!, cancellationToken).ConfigureAwait(false);
                         var fingerprint = CandidatePlanner.NormalizationFingerprint(candidate.Item);
+                        var providerFingerprint = CandidatePlanner.ProviderFingerprint(candidate.Item);
                         var status = "provider-unavailable";
                         try
                         {
-                            var decision = await _writeService.ResolveTitleAsync(candidate, cancellationToken).ConfigureAwait(false);
+                            var cached = candidate.Decision.Source == "cached-canonical";
+                            var decision = cached ? candidate : await _writeService.ResolveTitleAsync(candidate, cancellationToken).ConfigureAwait(false);
                             resolved.Add(decision);
-                            if (writeEnabled && decision.Decision.Source == "exact-tmdb")
+                            if (writeEnabled && cached)
+                            {
+                                if (candidate.Item.IsSeries && await _writeService.ApplyChildLabelsAsync(candidate.Item, cancellationToken,
+                                    () => _auditService.EnsureCanWriteAsync(configuration, report.SyncResult!, cancellationToken)).ConfigureAwait(false)) appliedCount++;
+                                status = "canonical";
+                            }
+                            else if (writeEnabled && decision.Decision.Source == "exact-tmdb")
                             {
                                 if (await _writeService.ApplyTitleAsync(decision, cancellationToken,
                                     () => _auditService.EnsureCanWriteAsync(configuration, report.SyncResult!, cancellationToken)).ConfigureAwait(false)) appliedCount++;
-                                fingerprint = CandidatePlanner.NormalizationFingerprint(candidate.Item with
+                                var canonical = candidate.Item with
                                 {
                                     Name = decision.Decision.Title,
                                     Overview = string.IsNullOrWhiteSpace(candidate.Item.Overview) ? decision.MissingOverview : candidate.Item.Overview
-                                });
+                                };
+                                fingerprint = CandidatePlanner.NormalizationFingerprint(canonical);
+                                providerFingerprint = CandidatePlanner.ProviderFingerprint(canonical);
                                 status = "canonical";
                             }
                         }
                         catch (Exception exception) when (exception is not OperationCanceledException)
                         {
                             failureCount++;
-                            status = "failed";
+                            status = candidate.Decision.Source == "cached-canonical" ? "child-label-failed" : "failed";
                             _logger.LogError(exception, "Failed to normalize Xtream item {ItemId}", candidate.Item.Id);
                         }
                         if (writeEnabled)
                         {
                             state.Items[candidate.Item.Id] = new EnrichmentStateItem
                             {
-                                Fingerprint = fingerprint, Status = status, AttemptedUtc = DateTimeOffset.UtcNow
+                                Fingerprint = fingerprint, ProviderFingerprint = providerFingerprint, Status = status, AttemptedUtc = DateTimeOffset.UtcNow
                             };
                             if ((processedCount + 1) % 64 == 0)
                                 await _stateReader.WriteAsync(statePath, state, CancellationToken.None).ConfigureAwait(false);

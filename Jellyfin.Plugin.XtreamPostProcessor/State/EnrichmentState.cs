@@ -19,6 +19,9 @@ internal sealed class EnrichmentStateItem
     [JsonPropertyName("fingerprint")]
     public string? Fingerprint { get; init; }
 
+    [JsonPropertyName("providerFingerprint")]
+    public string? ProviderFingerprint { get; init; }
+
     [JsonPropertyName("status")]
     public string? Status { get; init; }
 

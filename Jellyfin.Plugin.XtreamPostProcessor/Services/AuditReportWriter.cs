@@ -72,6 +72,8 @@ public sealed class AuditReportWriter
                 scannedItemCount = report.ScannedItemCount,
                 candidateCount = report.Candidates.Count,
                 itemUpdateCount = report.Candidates.Count(candidate => candidate.NeedsItemUpdate),
+                remoteLookupCount = report.Candidates.Count(candidate => candidate.Decision.Source != "cached-canonical"),
+                localChildCheckCount = report.Candidates.Count(candidate => candidate.Decision.Source == "cached-canonical" && candidate.Item.IsSeries),
                 writeEnabled,
                 appliedCount,
                 failureCount,
@@ -88,7 +90,7 @@ public sealed class AuditReportWriter
             },
             cancellationToken);
 
-    private async Task WriteAsync(string fileName, object value, CancellationToken cancellationToken)
+    internal async Task WriteAsync(string fileName, object value, CancellationToken cancellationToken)
     {
         var directory = Path.Combine(_applicationPaths.DataPath, "xtream-post-processor");
         Directory.CreateDirectory(directory);
@@ -99,6 +101,7 @@ public sealed class AuditReportWriter
             await JsonSerializer.SerializeAsync(stream, value, JsonOptions, cancellationToken).ConfigureAwait(false);
         }
 
+        if (!OperatingSystem.IsWindows()) File.SetUnixFileMode(temporary, UnixFileMode.UserRead | UnixFileMode.UserWrite);
         File.Move(temporary, destination, true);
     }
 }

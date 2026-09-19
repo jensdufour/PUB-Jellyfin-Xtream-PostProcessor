@@ -1,7 +1,7 @@
 # Xtream Post Processor for Jellyfin
 
 Portable Jellyfin 12 plugin for canonical Movie and Series titles after Xtream
-Library synchronization and indexing. Version **0.4.0.0** targets .NET 10
+Library synchronization and indexing. Version **0.5.0.0** targets .NET 10
 and the Jellyfin 12.0 API baseline. The selected rollout is repository installation
 on Jellyfin 12.1 when native writers are idle.
 Release tags build and publish the package and catalog through GitHub Actions.
@@ -9,7 +9,9 @@ Version0.3.0 title writes and preservation checks were verified in production;
 the optional0.4.0 flow also passed live Jellyfin12.1 activation and native task-order
 verification on2026-09-18. Titles, movie merge, episode merge and search completed
 without a new scan; backend search completion and preserved history/settings were
-checked separately. The Release build passes62 tests.
+checked separately. Version0.5 adds relationship reconciliation and a post-merge
+integrity gate; its production activation is not yet verified. The Release build
+passes76 tests, including an optional private sanitized production-graph fixture.
 
 Audit-only is the default. No daemon, external title writer, direct database
 access, or additional synchronization schedule is required.
@@ -35,7 +37,7 @@ access, or additional synchronization schedule is required.
 
 ## Install
 
-Add this repository in Jellyfin and select **Xtream Post Processor 0.4.0.0**.
+Add this repository in Jellyfin and select **Xtream Post Processor 0.5.0.0**.
 Earlier catalog entries remain available for Jellyfin 10.11; do not select them
 on Jellyfin 12.
 
@@ -54,7 +56,7 @@ package does not require restarting immediately. The task names remain under
 	changing sync. Preserve the database, configuration and affected NFOs through
 	the existing backup procedure; an application-disk backup alone does not
 	cover media on separate mounts. Do not interrupt the running scan to install.
-2. Install version `0.4.0.0` through the repository and leave its restart pending
+2. Install version `0.5.0.0` through the repository and leave its restart pending
 	until the current scan finishes and a restart is approved. On an upgrade,
 	persist `AuditOnly=true` before startup; saved write settings override defaults.
 3. Set the existing absolute Xtream media root, enable the native `TheMovieDb`
@@ -108,9 +110,11 @@ The existing watcher awaits these native tasks in order:
 
 ```text
 Successful Xtream sync + qualifying full scan
+	-> verify/reconcile version relationships; save source baseline
 	-> XtreamPostProcessorNormalize
 	-> MergeMoviesTask
 	-> MergeEpisodesTask
+	-> verify persisted relationships and retained sources
 	-> task-meilisearch-reindex-full
 ```
 
@@ -131,6 +135,26 @@ This sequences plugin-owned launches; Jellyfin provides no global lock against a
 manual scan, another plugin or the next daily sync. Avoid launching competing jobs.
 The full-index task's completion does not independently certify that Meilisearch's
 asynchronous backend queue is empty. This does not make library scans incremental.
+
+Version0.5's flow requires Jellyfin12.1's `IncludeAlternateVersions` query support;
+the available12.0 build references are bridged with a checked runtime property.
+Paged repository reads include hidden Movie/Episode editions under the configured
+media root. Before titles/merges, the plugin restores missing reciprocal links
+only when the existing primary chain and media IDs prove the target. It can
+correct an owned version's primary pointer only to its existing verified local
+owner. Local ownership is never cleared. Root self-links are removed through
+native item persistence while retaining other links; no SQL writes, file changes,
+metadata refresh or fuzzy merging are used. Locks and conflicting identities stop
+the flow. Existing legitimate nested and multiply referenced local groups remain.
+
+The post-merge gate reads persistence again and requires reciprocal links, no
+self-links/cycles/missing targets, unchanged media IDs/paths and all pre-merge group
+members still grouped. The baseline is `version-baseline.json`; the latest result
+is `last-version-integrity.json`. A missing/mismatched restart baseline fails closed.
+The check blocks search and flow completion on failure; it cannot undo earlier
+native writes. It reconciles scan damage after scanning, not inside Jellyfin's
+scanner, and cannot reconstruct a relationship if both pointer and link vanished
+before the baseline. No full filesystem or viewing-history audit is implied.
 
 ## Completion And Retry
 
@@ -164,9 +188,17 @@ transaction with other plugins or UI edits. In particular, Merge Versions work
 that outlives its task's completion is not covered. Do not overlap external
 metadata writers with an acceptance run.
 
-Successful title checkpoints skip unchanged items. A changed name, TMDb ID,
-path, language/country, optional-overview policy, or series `DateLastMediaAdded`
-reopens the item. New items precede retries in bounded batches. Unavailable IDs
+Successful title checkpoints skip unchanged remote lookups. A changed name, TMDb
+ID, path, language/country or optional-overview policy reopens provider lookup;
+`DateLastMediaAdded` does not. Canonical series get a separate local child-label
+check on each run, including hidden alternatives on12.1, so new children and
+unchanged timestamps cannot suppress label repair. Local-only checks do not read
+or rewrite the parent's NFO. A label-save failure retries locally without discarding
+the canonical decision. Reports separate remote lookups from local child checks.
+Legacy checkpoints acquire `providerFingerprint` without lookup only if their
+original full fingerprint still matches; changed legacy checkpoints are revalidated
+once, never blindly trusted or wiped. Provider work precedes cached local checks
+in bounded batches. Unavailable IDs
 and failed writes retry on a later run when retrying is enabled. Missing IDs and
 locked titles are left untouched. Title checkpoints are saved every 64 items
 and at task exit; cancellation or a crash may replay completed items, safely.
@@ -176,8 +208,8 @@ mark the backlog complete, so repeated audits can repeat provider lookups.
 NFO persistence follows enabled native saver paths and is not atomic with the
 database update. A failed run may leave a newer NFO while its item remains old;
 the next run reconciles it. No NFO or media renames are performed. A lock-only
-change on an already checkpointed item's child, or an NFO-only edit not imported
-by a scan, does not invalidate the parent checkpoint; with processing disabled,
+change on a child is picked up by the local check. An NFO-only edit not imported
+by a scan does not invalidate the parent checkpoint; with processing disabled,
 back up and remove `title-state.json` to explicitly re-audit the scoped backlog.
 
 ## Build

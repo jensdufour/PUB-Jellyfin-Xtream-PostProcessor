@@ -1,5 +1,25 @@
 # Xtream Post Processor Decisions
 
+- 0.5.0.0 source: before-flow native relationship reconciliation and source/group
+  baseline; after merges require persisted reciprocity and source membership before
+  search. Requires12.1 IncludeAlternateVersions; never rely on presentation grouping
+  alone to include hidden editions. Uses native repository/persistence/link APIs,
+  not SQL or a server patch. Upsert alone does not refresh cache: retrieve/register.
+- Native local ownership and nested/multiple references within the same group are
+  legitimate. Correct owned primary pointers only to an already-linked local owner;
+  never repeat broad OwnerId clearing. Root self-link removal retains all other
+  arrays to avoid native orphan-local deletion. Conflicts/locks fail closed.
+- Sanitized full268806-record production fixture passed117 missing-link additions,
+  five owner-preserving primary corrections and five root self-link removals;
+  all2984OwnerIds retained. This is planner proof, not yet live repair proof.
+  Fixture stays private/outside Git; optional test uses XTREAM_VERSION_FIXTURE.
+- Stable providerFingerprint excludes DateLastMediaAdded. Canonical series check
+  child labels locally every run. Legacy full-hash matches migrate without network;
+  mismatches revalidate once. Child-only failure retains provider decision and retries
+  locally. Cached local checks do not validate parent NFO; exact-provider writes do.
+- 76 Release tests pass. Production0.5 activation remains pending. Incremental scans
+  are deferred; reconciliation happens after a scan, not within its mutation path.
+
 - 0.4.0.0 adds opt-in native follow-up sequencing to the existing watcher, not a
   separate daemon. Native task order: Normalize, MergeMovies, MergeEpisodes,
   full Meilisearch index. Xtream remains the sync/scan scheduler.

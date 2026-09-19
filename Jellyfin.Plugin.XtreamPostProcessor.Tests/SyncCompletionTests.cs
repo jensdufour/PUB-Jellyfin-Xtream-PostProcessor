@@ -90,6 +90,7 @@ public sealed class SyncCompletionTests
     [InlineData("changed-sync")]
     [InlineData("changed-timer")]
     [InlineData("cancelled")]
+    [InlineData("integrity-failed")]
     public async Task NativeFlowRecoveryAndSafetyGates(string scenario)
     {
         var directory = Path.Combine(Path.GetTempPath(), "xtream-flow-guards-" + Guid.NewGuid().ToString("N"));
@@ -146,11 +147,12 @@ public sealed class SyncCompletionTests
                 return Task.CompletedTask;
             }
             var operation = new NativeLibraryFlow(manager, path, NullLogger.Instance).RunAsync(
-                scenario == "new-cycle" ? "cycle-two" : "cycle-one", Ensure, cancellation.Token);
+                scenario == "new-cycle" ? "cycle-two" : "cycle-one", Ensure, cancellation.Token,
+                _ => scenario == "integrity-failed" ? throw new InvalidOperationException("Missing reciprocal version link") : Task.CompletedTask);
             if (scenario is "running-success" or "new-cycle") await operation;
             else if (scenario == "cancelled") await Assert.ThrowsAnyAsync<OperationCanceledException>(() => operation);
             else await Assert.ThrowsAsync<InvalidOperationException>(() => operation);
-            Assert.Equal(scenario switch { "running-success" => 2, "new-cycle" => 4, "changed-sync" or "changed-timer" => 1, _ => 0 }, calls.Count);
+            Assert.Equal(scenario switch { "running-success" => 2, "new-cycle" => 4, "integrity-failed" => 3, "changed-sync" or "changed-timer" => 1, _ => 0 }, calls.Count);
             if (scenario == "running-success") Assert.Equal(NativeLibraryFlow.TaskKeys.Skip(2), calls);
         }
         finally { Directory.Delete(directory, true); }
@@ -265,12 +267,13 @@ public sealed class SyncCompletionTests
             series.ProviderIds["Tmdb"] = "42";
             var failSave = !auditOnly;
             var lookups = 0;
+            var episode = new Episode { Id = Guid.NewGuid(), SeriesId = series.Id, Name = "Episode title", SeriesName = "Provider" };
             var library = InterfaceStub.Create<ILibraryManager>((method, arguments) => method.Name switch
             {
                 "get_IsScanRunning" => false,
                 "GetItemById" => series,
                 "GetLibraryOptions" => new LibraryOptions { PreferredMetadataLanguage = "nl", MetadataCountryCode = "BE" },
-                "GetItemList" => ((InternalItemsQuery)arguments![0]!).IncludeItemTypes.Contains(BaseItemKind.Series) ? new List<BaseItem> { series } : new List<BaseItem>(),
+                "GetItemList" => ((InternalItemsQuery)arguments![0]!).IncludeItemTypes.Contains(BaseItemKind.Series) ? new List<BaseItem> { series } : new List<BaseItem> { episode },
                 "UpdateItemAsync" => Task.CompletedTask,
                 _ => throw new NotImplementedException(method.Name)
             });
@@ -315,8 +318,16 @@ public sealed class SyncCompletionTests
                 state = await stateReader.ReadAsync(statePath, CancellationToken.None);
                 Assert.Equal("canonical", Assert.Single(state.Items).Value.Status);
                 Assert.Equal("Canonical", series.Name);
+                episode.SeriesName = "New child label";
+                series.DateLastMediaAdded = DateTime.UtcNow;
                 await task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
                 Assert.Equal(2, lookups);
+                Assert.Equal("Canonical", episode.SeriesName);
+                Assert.Equal("Episode title", episode.Name);
+                episode.SeriesName = "Another label without timestamp change";
+                await task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
+                Assert.Equal(2, lookups);
+                Assert.Equal("Canonical", episode.SeriesName);
             }
         }
         finally { Directory.Delete(directory, true); }

@@ -169,12 +169,27 @@ public sealed class CandidatePlannerTests
     {
         var item = Item("A", "The Big Show Show", "Present", "100963") with { MetadataLanguage = "en" };
         var state = new EnrichmentState();
+        state.Items[item.Id] = new() { ProviderFingerprint = CandidatePlanner.ProviderFingerprint(item), Status = "canonical" };
+        Assert.Equal("cached-canonical", Assert.Single(CandidatePlanner.PlanNormalization([item], state)).Decision.Source);
+        Assert.Equal("pending-provider-lookup", Assert.Single(CandidatePlanner.PlanNormalization([item with { Name = "The Big Show Show (2020) (US)" }], state)).Decision.Source);
+        Assert.Equal("pending-provider-lookup", Assert.Single(CandidatePlanner.PlanNormalization([item with { MetadataLanguage = "nl" }], state)).Decision.Source);
+        Assert.Equal("pending-provider-lookup", Assert.Single(CandidatePlanner.PlanNormalization([item with { TmdbId = "384" }], state)).Decision.Source);
+        Assert.Equal("cached-canonical", Assert.Single(CandidatePlanner.PlanNormalization([item with { DateLastMediaAdded = DateTime.UtcNow }], state)).Decision.Source);
+        Assert.Equal("cached-canonical", Assert.Single(CandidatePlanner.PlanNormalization([item with { DateLastMediaAdded = null }], state)).Decision.Source);
+    }
+
+    [Fact]
+    public void LegacyCanonicalCheckpointMigratesOnlyWhenItsFullFingerprintMatches()
+    {
+        var item = Item("A", "Canonical", "Present", "42");
+        var state = new EnrichmentState();
         state.Items[item.Id] = new() { Fingerprint = CandidatePlanner.NormalizationFingerprint(item), Status = "canonical" };
-        Assert.Empty(CandidatePlanner.PlanNormalization([item], state));
-        Assert.Single(CandidatePlanner.PlanNormalization([item with { Name = "The Big Show Show (2020) (US)" }], state));
-        Assert.Single(CandidatePlanner.PlanNormalization([item with { MetadataLanguage = "nl" }], state));
-        Assert.Single(CandidatePlanner.PlanNormalization([item with { TmdbId = "384" }], state));
-        Assert.Single(CandidatePlanner.PlanNormalization([item with { DateLastMediaAdded = DateTime.UtcNow }], state));
+        Assert.Equal("cached-canonical", Assert.Single(CandidatePlanner.PlanNormalization([item], state)).Decision.Source);
+        Assert.Equal("pending-provider-lookup", Assert.Single(CandidatePlanner.PlanNormalization([item with { Name = "Changed" }], state)).Decision.Source);
+        Assert.Equal("pending-provider-lookup", Assert.Single(CandidatePlanner.PlanNormalization([item with { DateLastMediaAdded = DateTime.UtcNow }], state)).Decision.Source);
+        var movie = item with { IsSeries = false };
+        state.Items[item.Id] = new() { ProviderFingerprint = CandidatePlanner.ProviderFingerprint(movie), Status = "canonical" };
+        Assert.Empty(CandidatePlanner.PlanNormalization([movie], state));
     }
 
     [Fact]
@@ -185,6 +200,17 @@ public sealed class CandidatePlannerTests
         state.Items[item.Id] = new() { Fingerprint = CandidatePlanner.NormalizationFingerprint(item), Status = "provider-unavailable" };
         Assert.Single(CandidatePlanner.PlanNormalization([item], state));
         Assert.Empty(CandidatePlanner.PlanNormalization([item], state, retryFailed: false));
+    }
+
+    [Fact]
+    public void FailedChildLabelSaveRetriesLocallyWithoutInvalidatingCanonicalTitle()
+    {
+        var item = Item("A", "Canonical", "Present", "42");
+        var state = new EnrichmentState();
+        state.Items[item.Id] = new() { ProviderFingerprint = CandidatePlanner.ProviderFingerprint(item), Status = "child-label-failed" };
+        Assert.Equal("cached-canonical", Assert.Single(CandidatePlanner.PlanNormalization([item], state)).Decision.Source);
+        Assert.Empty(CandidatePlanner.PlanNormalization([item], state, retryFailed: false));
+        Assert.Equal("pending-provider-lookup", Assert.Single(CandidatePlanner.PlanNormalization([item with { Name = "Changed" }], state)).Decision.Source);
     }
 
     private static LibraryItemSnapshot Item(string id, string name, string? overview, string? tmdbId) =>

@@ -58,11 +58,18 @@ internal static partial class CandidatePlanner
                 continue;
             }
 
-            if (state?.Items.TryGetValue(item.Id, out var previous) == true
-                && previous.Fingerprint == NormalizationFingerprint(item)
-                && (previous.Status == "canonical" || !retryFailed))
+            if (state?.Items.TryGetValue(item.Id, out var previous) == true)
             {
-                continue;
+                var unchanged = previous.ProviderFingerprint is { } stable
+                    ? stable == ProviderFingerprint(item)
+                    : previous.Fingerprint == NormalizationFingerprint(item);
+                if (unchanged && (previous.Status == "canonical" || (retryFailed && previous.Status == "child-label-failed")))
+                {
+                    if (item.IsSeries || previous.ProviderFingerprint is null)
+                        results.Add(new(item, sourceName, new(item.Name, "cached-canonical"), false));
+                    continue;
+                }
+                if (unchanged && !retryFailed) continue;
             }
 
             results.Add(new NormalizationPlanItem(
@@ -72,7 +79,8 @@ internal static partial class CandidatePlanner
                 false));
         }
 
-        return results.OrderBy(candidate => state?.Items.ContainsKey(candidate.Item.Id) == true)
+        return results.OrderBy(candidate => candidate.Decision.Source == "cached-canonical")
+            .ThenBy(candidate => state?.Items.ContainsKey(candidate.Item.Id) == true)
             .ThenBy(candidate => state?.Items.TryGetValue(candidate.Item.Id, out var previous) == true ? previous.AttemptedUtc : null)
             .ThenBy(candidate => candidate.Item.Id, StringComparer.Ordinal).ToArray();
     }
@@ -82,6 +90,13 @@ internal static partial class CandidatePlanner
         {
             item.TypeName, item.Path, item.TmdbId, item.Name, item.MetadataLanguage, item.MetadataCountryCode, item.TitleLocked,
             item.FillMissingOverview, OverviewMissing = item.FillMissingOverview && string.IsNullOrWhiteSpace(item.Overview), item.DateLastMediaAdded
+        }))));
+
+    internal static string ProviderFingerprint(LibraryItemSnapshot item) => Convert.ToHexString(
+        SHA256.HashData(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(new
+        {
+            item.TypeName, item.Path, item.TmdbId, item.Name, item.MetadataLanguage, item.MetadataCountryCode, item.TitleLocked,
+            item.FillMissingOverview, OverviewMissing = item.FillMissingOverview && string.IsNullOrWhiteSpace(item.Overview)
         }))));
 
     private static bool ShouldProcess(

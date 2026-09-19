@@ -12,6 +12,7 @@ internal sealed class XtreamSyncWatcher : BackgroundService
     private readonly ITaskManager _taskManager;
     private readonly LibraryAuditService _auditService;
     private readonly ILogger<XtreamSyncWatcher> _logger;
+    private readonly VersionLinkService? _versions;
     private readonly Channel<bool> _signals = Channel.CreateBounded<bool>(new BoundedChannelOptions(1)
     {
         SingleReader = true,
@@ -22,11 +23,13 @@ internal sealed class XtreamSyncWatcher : BackgroundService
     public XtreamSyncWatcher(
         ITaskManager taskManager,
         LibraryAuditService auditService,
-        ILogger<XtreamSyncWatcher> logger)
+        ILogger<XtreamSyncWatcher> logger,
+        VersionLinkService? versions = null)
     {
         _taskManager = taskManager;
         _auditService = auditService;
         _logger = logger;
+        _versions = versions;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -90,7 +93,7 @@ internal sealed class XtreamSyncWatcher : BackgroundService
                 var scan = _taskManager.ScheduledTasks.Single(task => task.ScheduledTask.Key == "RefreshLibrary").LastExecutionResult!;
                 var cycle = $"{sync!.Identity}|{scan.StartTimeUtc:O}|{scan.EndTimeUtc:O}";
                 var flow = new NativeLibraryFlow(_taskManager, _auditService.ResolveOwnedStatePath("xtream-post-processor/library-flow.json"), _logger);
-                await flow.RunAsync(cycle, async token =>
+                async Task EnsureReady(CancellationToken token)
                 {
                     if (!configuration.RunLibraryFlow) throw new OperationCanceledException("Library flow disabled");
                     if (_taskManager.ScheduledTasks.Any(task => task.ScheduledTask.Key == "XtreamPostProcessorEnrich" && task.State != TaskState.Idle))
@@ -99,7 +102,12 @@ internal sealed class XtreamSyncWatcher : BackgroundService
                     var currentScan = _taskManager.ScheduledTasks.Single(task => task.ScheduledTask.Key == "RefreshLibrary").LastExecutionResult;
                     if (currentScan?.StartTimeUtc != scan.StartTimeUtc || currentScan.EndTimeUtc != scan.EndTimeUtc)
                         throw new InvalidOperationException("Library scan changed during the flow");
-                }, cancellationToken).ConfigureAwait(false);
+                }
+                var versions = _versions ?? throw new InvalidOperationException("Version integrity service is unavailable");
+                var baselinePath = _auditService.ResolveOwnedStatePath("xtream-post-processor/version-baseline.json");
+                await flow.RunAsync(cycle, EnsureReady, cancellationToken,
+                    token => versions.CheckAsync(configuration.XtreamRoot, cycle, baselinePath, false, EnsureReady, token),
+                    token => versions.CheckAsync(configuration.XtreamRoot, cycle, baselinePath, true, EnsureReady, token)).ConfigureAwait(false);
                 return;
             }
             _taskManager.QueueIfNotRunning<NormalizeXtreamTask>();
