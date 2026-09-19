@@ -11,7 +11,9 @@ verification on2026-09-18. Titles, movie merge, episode merge and search complet
 without a new scan; backend search completion and preserved history/settings were
 checked separately. Version0.5 adds relationship reconciliation and a post-merge
 integrity gate. Release workflow35427659938 published its repository package;
-production activation is deferred while playback is active. The Release build
+production activation passed on September19 with catalogue/history/settings
+preserved. The initial relationship flow is still running; post-merge acceptance
+is not yet claimed. The Release build
 passes76 tests, including an optional private sanitized production-graph fixture.
 
 Audit-only is the default. No daemon, external title writer, direct database
