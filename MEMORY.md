@@ -17,7 +17,9 @@
   child labels locally every run. Legacy full-hash matches migrate without network;
   mismatches revalidate once. Child-only failure retains provider decision and retries
   locally. Cached local checks do not validate parent NFO; exact-provider writes do.
-- 76 Release tests pass. Production0.5 activation remains pending. Incremental scans
+- 76 Release tests pass. Release35427659938 succeeded, sourcebeea0ed, cataloge4bdb90,
+  tagv0.5.0.0 published. Production0.5 activation remains pending: current playback
+  guard stopped deployment before any live changes. Incremental scans
   are deferred; reconciliation happens after a scan, not within its mutation path.
 
 - 0.4.0.0 adds opt-in native follow-up sequencing to the existing watcher, not a

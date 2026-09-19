@@ -10,7 +10,8 @@ the optional0.4.0 flow also passed live Jellyfin12.1 activation and native task-
 verification on2026-09-18. Titles, movie merge, episode merge and search completed
 without a new scan; backend search completion and preserved history/settings were
 checked separately. Version0.5 adds relationship reconciliation and a post-merge
-integrity gate; its production activation is not yet verified. The Release build
+integrity gate. Release workflow35427659938 published its repository package;
+production activation is deferred while playback is active. The Release build
 passes76 tests, including an optional private sanitized production-graph fixture.
 
 Audit-only is the default. No daemon, external title writer, direct database
