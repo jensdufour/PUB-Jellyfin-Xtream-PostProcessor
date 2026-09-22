@@ -218,7 +218,8 @@ public sealed class LibraryWriteService
             var query = new InternalItemsQuery
             {
                 Parent = series, IncludeItemTypes = [BaseItemKind.Season, BaseItemKind.Episode],
-                Recursive = true, GroupByPresentationUniqueKey = false, EnableTotalRecordCount = false
+                Recursive = true, GroupByPresentationUniqueKey = false, EnableTotalRecordCount = false,
+                IncludeOwnedItems = true
             };
             typeof(InternalItemsQuery).GetProperty("IncludeAlternateVersions")?.SetValue(query, true);
             var children = _libraryManager.GetItemList(query);

@@ -71,6 +71,30 @@ public sealed class LibraryWriteServiceTests
     }
 
     [Fact]
+    public async Task RepairsOwnedAlternateChildLabels()
+    {
+        var series = new Series { Id = Guid.NewGuid(), Name = "Canonical", Path = "/media/Series/Canonical" };
+        series.ProviderIds["Tmdb"] = "42";
+        var episode = new Episode { Id = Guid.NewGuid(), SeriesId = series.Id, SeriesName = "Provider", Name = "Episode" };
+        var writes = new List<Guid>();
+        var library = InterfaceStub.Create<ILibraryManager>((method, arguments) => method.Name switch
+        {
+            "GetItemById" => series,
+            "GetItemList" => ((InternalItemsQuery)arguments![0]!).IncludeOwnedItems
+                ? new List<BaseItem> { episode }
+                : new List<BaseItem>(),
+            "UpdateItemAsync" => Record(writes, ((BaseItem)arguments![0]!).Id),
+            _ => throw new NotImplementedException(method.Name)
+        });
+        var service = new LibraryWriteService(library,
+            InterfaceStub.Create<IProviderManager>((method, _) => throw new InvalidOperationException("Unexpected provider call: " + method.Name)));
+
+        Assert.True(await service.ApplyChildLabelsAsync(Snapshot(series), CancellationToken.None));
+        Assert.Equal("Canonical", episode.SeriesName);
+        Assert.Equal([episode.Id], writes);
+    }
+
+    [Fact]
     public async Task ResolvesExactLocalizedTitleWithoutWriting()
     {
         var series = new Series { Id = Guid.NewGuid(), Name = "Provider", Path = "/media/Series/Provider" };

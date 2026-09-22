@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.0.3
+
+- Include owned alternate episodes and seasons in canonical `SeriesName` repair; Jellyfin otherwise hides rows carrying `OwnerId` from the child query.
+
 ## 0.5.0.2
 
 - Include owned local editions in relationship snapshots; `IncludeAlternateVersions` alone still excludes rows carrying `OwnerId`.

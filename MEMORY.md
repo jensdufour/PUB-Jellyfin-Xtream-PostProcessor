@@ -1,5 +1,10 @@
 # Xtream Post Processor Decisions
 
+- 0.5.0.3 setsIncludeOwnedItems on the separate child-label query. This extends
+  canonicalSeriesName repair to owned alternate Episodes/Seasons without changing
+  relationship logic or metadata lookup. Regression simulates Jellyfin hiding the
+  child unless requested.79tests; production repair pending deployment.
+
 - Sep22 live0.5.0.2 FINALFLOWPASS onJellyfin12.1: fixed IDsnapshot plus
   IncludeOwnedItems; title->movie->episode->search completed,269233relationship
   rows/0broken/0self, search659588/0pending/0failed, no extrasync/scan. History,

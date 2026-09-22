@@ -1,7 +1,7 @@
 # Xtream Post Processor for Jellyfin
 
 Portable Jellyfin 12 plugin for canonical Movie and Series titles after Xtream
-Library synchronization and indexing. Version **0.5.0.2** targets .NET 10
+Library synchronization and indexing. Version **0.5.0.3** targets .NET 10
 and the Jellyfin 12.0 API baseline. The selected rollout is repository installation
 on Jellyfin 12.1 when native writers are idle.
 Release tags build and publish the package and catalog through GitHub Actions.
@@ -11,8 +11,9 @@ verification on2026-09-18. Titles, movie merge, episode merge and search complet
 without a new scan; backend search completion and preserved history/settings were
 checked separately. Version0.5 adds relationship reconciliation and a post-merge
 integrity gate. Version0.5.0.1 snapshots matching IDs before reading detail batches;
-version0.5.0.2 also includes owned local editions that Jellyfin otherwise hides.
-The Release build passes78 tests, including an optional private sanitized production-graph fixture.
+version0.5.0.2 also includes owned local editions that Jellyfin otherwise hides,
+and version0.5.0.3 includes them in child-label repair. The Release build passes79
+tests, including an optional private sanitized production-graph fixture.
 Production0.5.0.2 activation and the complete ordered flow passed on Jellyfin12.1
 on2026-09-22:269,233 relationship rows, title/movie/episode/search ordering, zero
 broken/self-links and a drained659,588-document search index without a new sync/scan.
@@ -41,7 +42,7 @@ access, or additional synchronization schedule is required.
 
 ## Install
 
-Add this repository in Jellyfin and select **Xtream Post Processor 0.5.0.2**.
+Add this repository in Jellyfin and select **Xtream Post Processor 0.5.0.3**.
 Earlier catalog entries remain available for Jellyfin 10.11; do not select them
 on Jellyfin 12.
 
@@ -60,7 +61,7 @@ package does not require restarting immediately. The task names remain under
 	changing sync. Preserve the database, configuration and affected NFOs through
 	the existing backup procedure; an application-disk backup alone does not
 	cover media on separate mounts. Do not interrupt the running scan to install.
-2. Install version `0.5.0.2` through the repository and leave its restart pending
+2. Install version `0.5.0.3` through the repository and leave its restart pending
 	until the current scan finishes and a restart is approved. On an upgrade,
 	persist `AuditOnly=true` before startup; saved write settings override defaults.
 3. Set the existing absolute Xtream media root, enable the native `TheMovieDb`
@@ -196,12 +197,11 @@ Successful title checkpoints skip unchanged remote lookups. A changed name, TMDb
 ID, path, language/country or optional-overview policy reopens provider lookup;
 `DateLastMediaAdded` does not. Canonical series get a separate local child-label
 check on each run, including linked hidden alternatives on12.1, so new children
-and unchanged timestamps cannot suppress label repair. Version0.5.0.2 does not
-yet set `IncludeOwnedItems` for this separate query: a live September22 run left
-11 owned alternate Outlander episodes with the old `SeriesName` after canonicalizing
-their parent. Relationship snapshots do include those rows. Local-only checks do
-not read or rewrite the parent's NFO. A label-save failure retries locally without
-discarding the canonical decision. Reports separate remote lookups from local child checks.
+and unchanged timestamps cannot suppress label repair. Version0.5.0.3 also sets
+`IncludeOwnedItems` for this query so owned alternate episodes and seasons are
+repaired. Local-only checks do not read or rewrite the parent's NFO. A label-save
+failure retries locally without discarding the canonical decision. Reports
+separate remote lookups from local child checks.
 Legacy checkpoints acquire `providerFingerprint` without lookup only if their
 original full fingerprint still matches; changed legacy checkpoints are revalidated
 once, never blindly trusted or wiped. Provider work precedes cached local checks
