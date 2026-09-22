@@ -1,5 +1,14 @@
 # Xtream Post Processor Decisions
 
+- Sep22 live0.5.0.2 FINALFLOWPASS onJellyfin12.1: fixed IDsnapshot plus
+  IncludeOwnedItems; title->movie->episode->search completed,269233relationship
+  rows/0broken/0self, search659588/0pending/0failed, no extrasync/scan. History,
+  identity,ownership,settings/schedules preserved. ROOT/version-flow-0.5.0.2.
+- Known debt from same run: child-label query only setsIncludeAlternateVersions,
+  notIncludeOwnedItems. Canonical OutlanderBloodofMyBlood parent left11 hidden
+  owned alternate episodes with oldSeriesName; mismatch188->199. Do not claim
+  owned child labels are covered by0.5.0.2; relationship integrity is covered.
+
 - 0.5.0.2 setsIncludeOwnedItems together with12.1IncludeAlternateVersions for
   integrity snapshots. The latter alone still filters local editions carrying
   OwnerId, producing a false unindexed-source failure despite a valid row/path.

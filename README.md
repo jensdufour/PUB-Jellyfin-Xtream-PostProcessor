@@ -13,6 +13,9 @@ checked separately. Version0.5 adds relationship reconciliation and a post-merge
 integrity gate. Version0.5.0.1 snapshots matching IDs before reading detail batches;
 version0.5.0.2 also includes owned local editions that Jellyfin otherwise hides.
 The Release build passes78 tests, including an optional private sanitized production-graph fixture.
+Production0.5.0.2 activation and the complete ordered flow passed on Jellyfin12.1
+on2026-09-22:269,233 relationship rows, title/movie/episode/search ordering, zero
+broken/self-links and a drained659,588-document search index without a new sync/scan.
 
 Audit-only is the default. No daemon, external title writer, direct database
 access, or additional synchronization schedule is required.
@@ -192,10 +195,13 @@ metadata writers with an acceptance run.
 Successful title checkpoints skip unchanged remote lookups. A changed name, TMDb
 ID, path, language/country or optional-overview policy reopens provider lookup;
 `DateLastMediaAdded` does not. Canonical series get a separate local child-label
-check on each run, including hidden alternatives on12.1, so new children and
-unchanged timestamps cannot suppress label repair. Local-only checks do not read
-or rewrite the parent's NFO. A label-save failure retries locally without discarding
-the canonical decision. Reports separate remote lookups from local child checks.
+check on each run, including linked hidden alternatives on12.1, so new children
+and unchanged timestamps cannot suppress label repair. Version0.5.0.2 does not
+yet set `IncludeOwnedItems` for this separate query: a live September22 run left
+11 owned alternate Outlander episodes with the old `SeriesName` after canonicalizing
+their parent. Relationship snapshots do include those rows. Local-only checks do
+not read or rewrite the parent's NFO. A label-save failure retries locally without
+discarding the canonical decision. Reports separate remote lookups from local child checks.
 Legacy checkpoints acquire `providerFingerprint` without lookup only if their
 original full fingerprint still matches; changed legacy checkpoints are revalidated
 once, never blindly trusted or wiped. Provider work precedes cached local checks
