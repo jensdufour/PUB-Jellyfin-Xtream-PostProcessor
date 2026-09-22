@@ -207,8 +207,15 @@ internal sealed class VersionLinkService(ILibraryManager library, IItemRepositor
             throw new InvalidDataException("Version checks require an existing absolute media root");
         var prefix = Path.GetFullPath(mediaRoot).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
         var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+        var idsQuery = new InternalItemsQuery
+        {
+            IncludeItemTypes = [BaseItemKind.Movie, BaseItemKind.Episode], Recursive = true, IsVirtualItem = false,
+            GroupByPresentationUniqueKey = false, EnableTotalRecordCount = false
+        };
+        IncludeAlternates(idsQuery);
+        var ids = repository.GetItemIdsList(idsQuery);
         var items = new Dictionary<Guid, VersionItem>();
-        for (var offset = 0; ; offset += 500)
+        foreach (var item in ReadSnapshot(ids, batch =>
         {
             token.ThrowIfCancellationRequested();
             var query = new InternalItemsQuery
@@ -216,17 +223,27 @@ internal sealed class VersionLinkService(ILibraryManager library, IItemRepositor
                 IncludeItemTypes = [BaseItemKind.Movie, BaseItemKind.Episode], Recursive = true, IsVirtualItem = false,
                 GroupByPresentationUniqueKey = false, EnableTotalRecordCount = false,
                 DtoOptions = new DtoOptions(false) { Fields = [ItemFields.ProviderIds, ItemFields.Settings], EnableImages = false, EnableUserData = false },
-                StartIndex = offset, Limit = 500
+                ItemIds = batch
             };
             IncludeAlternates(query);
-            var page = repository.GetItemList(query);
-            foreach (var item in page.OfType<Video>())
-                if (!string.IsNullOrWhiteSpace(item.Path) && Path.GetFullPath(item.Path).StartsWith(prefix, comparison))
-                    items.Add(item.Id, Snapshot(item));
-            if (page.Count < 500) break;
-        }
+            return repository.GetItemList(query).OfType<Video>().ToArray();
+        }, item => item.Id))
+            if (!string.IsNullOrWhiteSpace(item.Path) && Path.GetFullPath(item.Path).StartsWith(prefix, comparison))
+                items.Add(item.Id, Snapshot(item));
         if (items.Count == 0) throw new InvalidDataException("No indexed media under the configured root; integrity cannot be established");
         return items;
+    }
+
+    internal static IEnumerable<T> ReadSnapshot<T>(IReadOnlyList<Guid> ids,
+        Func<Guid[], IReadOnlyList<T>> readBatch, Func<T, Guid> getId)
+    {
+        foreach (var batch in ids.Chunk(500))
+        {
+            var page = readBatch(batch);
+            if (page.Count != batch.Length || !page.Select(getId).ToHashSet().SetEquals(batch))
+                throw new InvalidDataException("Indexed media changed while reading version relationships");
+            foreach (var item in page) yield return item;
+        }
     }
 
     internal static void IncludeAlternates(InternalItemsQuery query)

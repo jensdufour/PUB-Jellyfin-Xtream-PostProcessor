@@ -1,5 +1,10 @@
 # Xtream Post Processor Decisions
 
+- 0.5.0.1 snapshots all matching IDs once, then reads validated500-ID detail
+  batches. This replaces unstable offset paging where equal-title editions could
+  cross a page boundary and falsely report an indexed local source as missing.
+  Mid-read additions wait for the next cycle; disappeared IDs fail closed.77tests.
+
 - 0.5.0.0 source: before-flow native relationship reconciliation and source/group
   baseline; after merges require persisted reciprocity and source membership before
   search. Requires12.1 IncludeAlternateVersions; never rely on presentation grouping

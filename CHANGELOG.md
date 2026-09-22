@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.0.1
+
+- Snapshot matching item IDs before reading version details, preventing equal-title items from moving across offset pages and falsely appearing unindexed.
+- Fail closed when an item changes between the ID snapshot and its detail batch.
+
 ## 0.4.0.0
 
 - Add opt-in `RunLibraryFlow`: after a successful sync and qualifying scan, await title normalization, movie merging, episode merging and Meilisearch's full-index task in order.

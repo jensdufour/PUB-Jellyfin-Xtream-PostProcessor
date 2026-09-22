@@ -37,6 +37,23 @@ public sealed class VersionLinkTests
             new() { ["Tvdb"] = "189328" }, [], []);
 
     [Fact]
+    public void SnapshotBatchesReadEveryIdOrFailClosed()
+    {
+        var ids = Enumerable.Range(0, 1001).Select(_ => Guid.NewGuid()).ToArray();
+        var batchSizes = new List<int>();
+        var actual = VersionLinkService.ReadSnapshot(ids, batch =>
+        {
+            batchSizes.Add(batch.Length);
+            return batch.Reverse().ToArray();
+        }, id => id).ToArray();
+
+        Assert.Equal([500, 500, 1], batchSizes);
+        Assert.Equal(ids.Order(), actual.Order());
+        Assert.Throws<InvalidDataException>(() => VersionLinkService.ReadSnapshot(
+            ids, batch => batch.Skip(1).ToArray(), id => id).ToArray());
+    }
+
+    [Fact]
     public void RestoresMissingLinkedEditionAndAcceptsPersistedReadback()
     {
         var primary = Item(Guid.NewGuid());
