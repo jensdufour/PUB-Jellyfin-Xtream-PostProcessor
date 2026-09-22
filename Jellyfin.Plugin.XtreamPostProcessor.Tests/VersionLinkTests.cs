@@ -1,4 +1,5 @@
 using Jellyfin.Plugin.XtreamPostProcessor.Services;
+using MediaBrowser.Controller.Entities;
 
 namespace Jellyfin.Plugin.XtreamPostProcessor.Tests;
 
@@ -51,6 +52,21 @@ public sealed class VersionLinkTests
         Assert.Equal(ids.Order(), actual.Order());
         Assert.Throws<InvalidDataException>(() => VersionLinkService.ReadSnapshot(
             ids, batch => batch.Skip(1).ToArray(), id => id).ToArray());
+    }
+
+    [Fact]
+    public void VersionQueriesIncludeLinkedAndOwnedAlternates()
+    {
+        var query = new InternalItemsQuery();
+        var property = typeof(InternalItemsQuery).GetProperty("IncludeAlternateVersions");
+
+        if (property is null)
+            Assert.Throws<NotSupportedException>(() => VersionLinkService.IncludeAlternates(query));
+        else
+            VersionLinkService.IncludeAlternates(query);
+
+        Assert.True(query.IncludeOwnedItems);
+        if (property is not null) Assert.True((bool)property.GetValue(query)!);
     }
 
     [Fact]

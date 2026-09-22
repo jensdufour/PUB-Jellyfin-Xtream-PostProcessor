@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.0.2
+
+- Include owned local editions in relationship snapshots; `IncludeAlternateVersions` alone still excludes rows carrying `OwnerId`.
+
 ## 0.5.0.1
 
 - Snapshot matching item IDs before reading version details, preventing equal-title items from moving across offset pages and falsely appearing unindexed.

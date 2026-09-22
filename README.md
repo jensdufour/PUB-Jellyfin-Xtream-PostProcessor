@@ -1,7 +1,7 @@
 # Xtream Post Processor for Jellyfin
 
 Portable Jellyfin 12 plugin for canonical Movie and Series titles after Xtream
-Library synchronization and indexing. Version **0.5.0.1** targets .NET 10
+Library synchronization and indexing. Version **0.5.0.2** targets .NET 10
 and the Jellyfin 12.0 API baseline. The selected rollout is repository installation
 on Jellyfin 12.1 when native writers are idle.
 Release tags build and publish the package and catalog through GitHub Actions.
@@ -10,9 +10,9 @@ the optional0.4.0 flow also passed live Jellyfin12.1 activation and native task-
 verification on2026-09-18. Titles, movie merge, episode merge and search completed
 without a new scan; backend search completion and preserved history/settings were
 checked separately. Version0.5 adds relationship reconciliation and a post-merge
-integrity gate. Version0.5.0.1 snapshots matching IDs before reading detail batches,
-preventing equal-title items from drifting across offset pages. The Release build
-passes77 tests, including an optional private sanitized production-graph fixture.
+integrity gate. Version0.5.0.1 snapshots matching IDs before reading detail batches;
+version0.5.0.2 also includes owned local editions that Jellyfin otherwise hides.
+The Release build passes78 tests, including an optional private sanitized production-graph fixture.
 
 Audit-only is the default. No daemon, external title writer, direct database
 access, or additional synchronization schedule is required.
@@ -38,7 +38,7 @@ access, or additional synchronization schedule is required.
 
 ## Install
 
-Add this repository in Jellyfin and select **Xtream Post Processor 0.5.0.1**.
+Add this repository in Jellyfin and select **Xtream Post Processor 0.5.0.2**.
 Earlier catalog entries remain available for Jellyfin 10.11; do not select them
 on Jellyfin 12.
 
@@ -57,7 +57,7 @@ package does not require restarting immediately. The task names remain under
 	changing sync. Preserve the database, configuration and affected NFOs through
 	the existing backup procedure; an application-disk backup alone does not
 	cover media on separate mounts. Do not interrupt the running scan to install.
-2. Install version `0.5.0.1` through the repository and leave its restart pending
+2. Install version `0.5.0.2` through the repository and leave its restart pending
 	until the current scan finishes and a restart is approved. On an upgrade,
 	persist `AuditOnly=true` before startup; saved write settings override defaults.
 3. Set the existing absolute Xtream media root, enable the native `TheMovieDb`

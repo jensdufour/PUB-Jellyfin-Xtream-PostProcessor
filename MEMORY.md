@@ -1,5 +1,10 @@
 # Xtream Post Processor Decisions
 
+- 0.5.0.2 setsIncludeOwnedItems together with12.1IncludeAlternateVersions for
+  integrity snapshots. The latter alone still filters local editions carrying
+  OwnerId, producing a false unindexed-source failure despite a valid row/path.
+  Movie/Episode type and configured-root filters keep unrelated extras excluded.
+
 - 0.5.0.1 snapshots all matching IDs once, then reads validated500-ID detail
   batches. This replaces unstable offset paging where equal-title editions could
   cross a page boundary and falsely report an indexed local source as missing.

@@ -1,7 +1,7 @@
 ---
 name: "Xtream Post Processor"
 guid: "d9f0f3d1-2bb9-4eed-a96e-5344f4e683a9"
-version: "0.5.0.1"
+version: "0.5.0.2"
 targetAbi: "12.0.0.0"
 framework: "net10.0"
 overview: "Enrich and normalize Xtream-backed Jellyfin libraries."
@@ -12,4 +12,4 @@ category: "Metadata"
 owner: "jensdufour"
 artifacts:
 - "Jellyfin.Plugin.XtreamPostProcessor.dll"
-changelog: "Read version relationships from a fixed ID snapshot so equal-title items cannot drift across repository pages."
+changelog: "Include owned local editions as well as linked alternate versions in fixed-snapshot relationship checks."

@@ -248,6 +248,7 @@ internal sealed class VersionLinkService(ILibraryManager library, IItemRepositor
 
     internal static void IncludeAlternates(InternalItemsQuery query)
     {
+        query.IncludeOwnedItems = true;
         var property = typeof(InternalItemsQuery).GetProperty("IncludeAlternateVersions");
         if (property?.PropertyType != typeof(bool) || !property.CanWrite)
             throw new NotSupportedException("Version integrity checks require Jellyfin 12.1 IncludeAlternateVersions support");
