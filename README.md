@@ -25,8 +25,10 @@ Version0.6 restores the missing-overview enrichment stage that preceded title
 normalization in0.2 but was omitted by the0.3 rewrite. With `RunLibraryFlow=true`,
 the existing enrichment task now runs first after successful sync/indexing.
 It uses exact typed TMDb IDs and saved fallback languages, preserves existing and
-locked overviews, and stops later stages on task failure. Production activation
-and the first five-stage nightly run remain unverified until deployment.
+locked overviews, and stops later stages on task failure. All85tests pass.
+Jellyfin12.1 native repository installation and activation passed October5, with
+users, settings, schedules and checkpoints preserved. The completed old cycle
+was not replayed; the first five-stage nightly run remains to be observed.
 
 ## Features
 

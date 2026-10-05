@@ -7,8 +7,10 @@
   Schema2 distinguishes five stages: old completed/failed cycles remain untouched,
   old same-cycle incomplete state rejects, new sync/scan starts enrichment first.
   Preserve versions before first stage; verify after both merges/before search.
-  Focused26cases pass including order/failure/old-checkpoint handling; deployment
-  and first five-stage production run remain pending, not claimed by unit tests.
+  Focused26cases/full85tests pass including order/failure/old-checkpoint handling.
+  PublisherRelease37287296708 passed; nativeJellyfin12.1 installation+activation
+  Oct5 verifiedActiveHealthy/users/settings/schedules/item+flowstates preserved.
+  Completedoldcycle not replayed; first five-stage nightly run still unobserved.
 
 - 0.5.0.3 setsIncludeOwnedItems on the separate child-label query. This extends
   canonicalSeriesName repair to owned alternate Episodes/Seasons without changing
