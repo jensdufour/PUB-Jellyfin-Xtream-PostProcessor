@@ -1,7 +1,7 @@
 # Xtream Post Processor for Jellyfin
 
 Portable Jellyfin 12 plugin for canonical Movie and Series titles after Xtream
-Library synchronization and indexing. Version **0.5.0.3** targets .NET 10
+Library synchronization and indexing. Version **0.6.0.0** targets .NET 10
 and the Jellyfin 12.0 API baseline. The selected rollout is repository installation
 on Jellyfin 12.1 when native writers are idle.
 Release tags build and publish the package and catalog through GitHub Actions.
@@ -20,6 +20,13 @@ broken/self-links and a drained659,588-document search index without a new sync/
 
 Audit-only is the default. No daemon, external title writer, direct database
 access, or additional synchronization schedule is required.
+
+Version0.6 restores the missing-overview enrichment stage that preceded title
+normalization in0.2 but was omitted by the0.3 rewrite. With `RunLibraryFlow=true`,
+the existing enrichment task now runs first after successful sync/indexing.
+It uses exact typed TMDb IDs and saved fallback languages, preserves existing and
+locked overviews, and stops later stages on task failure. Production activation
+and the first five-stage nightly run remain unverified until deployment.
 
 ## Features
 
@@ -42,7 +49,7 @@ access, or additional synchronization schedule is required.
 
 ## Install
 
-Add this repository in Jellyfin and select **Xtream Post Processor 0.5.0.3**.
+Add this repository in Jellyfin and select **Xtream Post Processor 0.6.0.0**.
 Earlier catalog entries remain available for Jellyfin 10.11; do not select them
 on Jellyfin 12.
 
@@ -61,7 +68,7 @@ package does not require restarting immediately. The task names remain under
 	changing sync. Preserve the database, configuration and affected NFOs through
 	the existing backup procedure; an application-disk backup alone does not
 	cover media on separate mounts. Do not interrupt the running scan to install.
-2. Install version `0.5.0.3` through the repository and leave its restart pending
+2. Install version `0.6.0.0` through the repository and leave its restart pending
 	until the current scan finishes and a restart is approved. On an upgrade,
 	persist `AuditOnly=true` before startup; saved write settings override defaults.
 3. Set the existing absolute Xtream media root, enable the native `TheMovieDb`
@@ -95,7 +102,7 @@ containing `Movies` and/or `Series`. Existing saved root settings are retained.
 | Plugin state | `xtream-post-processor/enrichment-state.json` |
 | Title state (fixed, separate from legacy enrichment) | `xtream-post-processor/title-state.json` |
 | Media root | empty (required) |
-| Manual enrichment fallback languages | `nl,en,sv,da,cs` |
+| Enrichment fallback languages | `nl,en,sv,da,cs` |
 | Canonical-task missing Overview fill | `false` |
 | Write batch size (also bounds title audit lookups) | `0` (all candidates) |
 | Write item ID | empty |
@@ -106,7 +113,7 @@ containing `Movies` and/or `Series`. Existing saved root settings are retained.
 
 Enable `RunLibraryFlow` only with `Enabled=true`, `AuditOnly=false`, zero
 `WriteBatchSize` and empty `WriteItemId`. Keep Xtream's existing daily sync and
-post-sync scan. Remove independent triggers for title normalization, both merge
+post-sync scan. Remove independent triggers for enrichment, title normalization, both merge
 tasks and the full Meilisearch index task before enabling the option. The plugin
 checks those triggers but does not change them. Merge Versions12.0.1 or newer is
 required because its native task completion awaits the actual writes.
@@ -116,6 +123,7 @@ The existing watcher awaits these native tasks in order:
 ```text
 Successful Xtream sync + qualifying full scan
 	-> verify/reconcile version relationships; save source baseline
+	-> XtreamPostProcessorEnrich
 	-> XtreamPostProcessorNormalize
 	-> MergeMoviesTask
 	-> MergeEpisodesTask
@@ -133,6 +141,12 @@ Failure is not silently retried for the same cycle. After correcting the cause,
 disable processing and verify all writers idle before archiving/removing this
 flow checkpoint and re-enabling it to rerun the chain. Keep `title-state.json`.
 A newer successful sync/scan defines a new cycle without manual reset.
+
+Five-stage flows use checkpoint schema2. Existing schema1 completed/failed cycles
+are retained without replay. An incomplete schema1 checkpoint for the same cycle
+is rejected rather than reinterpreting its stage number; a new qualifying
+sync/scan starts schema2. Keep both enrichment and title item-state files when
+recovering a flow. Do not clear a completed cycle just to force upgrade work.
 
 Changing settings or sync/scan identity stops subsequent stages. Stopping the
 flow does not roll back completed work or abandon a native save already running.
@@ -167,8 +181,9 @@ before the baseline. No full filesystem or viewing-history audit is implied.
 `XtreamLibrarySync` and `RefreshLibrary`. Merge/task completion wakes pending
 work; startup attempts backlog recovery. Manual scheduled-task runs and native
 interval runs use the same path. No task triggers or Xtream interval settings
-are modified. The legacy multi-language enrichment task remains manual and is
-independent of canonical title processing.
+are modified. Enrichment completion also wakes deferred processing. With ordered
+flow disabled, multi-language enrichment remains manual and automatic processing
+continues to queue only canonical title normalization.
 
 Processing requires the latest sync to have succeeded, no active sync/full scan
 or recognized Merge Versions task, and a successful full library scan whose start

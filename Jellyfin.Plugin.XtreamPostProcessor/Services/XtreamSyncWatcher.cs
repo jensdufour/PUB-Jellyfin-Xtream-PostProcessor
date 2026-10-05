@@ -97,7 +97,7 @@ internal sealed class XtreamSyncWatcher : BackgroundService
                 {
                     if (!configuration.RunLibraryFlow) throw new OperationCanceledException("Library flow disabled");
                     if (_taskManager.ScheduledTasks.Any(task => task.ScheduledTask.Key == "XtreamPostProcessorEnrich" && task.State != TaskState.Idle))
-                        throw new InvalidOperationException("Legacy enrichment is active; library flow deferred");
+                        throw new InvalidOperationException("Metadata enrichment is already active; library flow deferred");
                     await _auditService.EnsureCanWriteAsync(configuration, sync, token).ConfigureAwait(false);
                     var currentScan = _taskManager.ScheduledTasks.Single(task => task.ScheduledTask.Key == "RefreshLibrary").LastExecutionResult;
                     if (currentScan?.StartTimeUtc != scan.StartTimeUtc || currentScan.EndTimeUtc != scan.EndTimeUtc)
@@ -124,7 +124,7 @@ internal sealed class XtreamSyncWatcher : BackgroundService
     {
         var key = eventArgs.Task.ScheduledTask.Key;
         if (key is "XtreamLibrarySync" or "RefreshLibrary") Interlocked.Exchange(ref _pending, 1);
-        if (key is "XtreamLibrarySync" or "RefreshLibrary" or "MergeMoviesTask" or "MergeEpisodesTask" or "XtreamPostProcessorNormalize" or "task-meilisearch-reindex-full")
+        if (key is "XtreamLibrarySync" or "RefreshLibrary" or "XtreamPostProcessorEnrich" or "MergeMoviesTask" or "MergeEpisodesTask" or "XtreamPostProcessorNormalize" or "task-meilisearch-reindex-full")
             _signals.Writer.TryWrite(true);
     }
 }

@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.6.0.0
+
+- Restore exact-TMDb missing-overview enrichment before title normalization in the opt-in ordered flow, then await movie merge, episode merge and search.
+- Keep independent triggers disabled and stop later stages on enrichment failure; preserve existing fallback languages, metadata locks and separate item checkpoints.
+- Use flow checkpoint schema2 for the five-stage order. Completed/failed schema1 cycles are not replayed; incomplete same-cycle schema1 checkpoints fail closed, while a new sync/scan starts the new order.
+- Keep relationship preservation before enrichment and the final integrity gate immediately before search; enrichment completion wakes deferred processing.
+
 ## 0.5.0.3
 
 - Include owned alternate episodes and seasons in canonical `SeriesName` repair; Jellyfin otherwise hides rows carrying `OwnerId` from the child query.

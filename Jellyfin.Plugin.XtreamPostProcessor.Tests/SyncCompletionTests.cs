@@ -26,6 +26,7 @@ public sealed class SyncCompletionTests
     [InlineData(1)]
     [InlineData(2)]
     [InlineData(3)]
+    [InlineData(4)]
     public async Task NativeFlowAwaitsEachStageAndStopsOnFailure(int failedStage)
     {
         var directory = Path.Combine(Path.GetTempPath(), "xtream-flow-" + Guid.NewGuid().ToString("N"));
@@ -62,18 +63,22 @@ public sealed class SyncCompletionTests
                 _ => throw new NotImplementedException(method.Name)
             });
             var flow = new NativeLibraryFlow(manager, path, NullLogger.Instance);
-            var running = flow.RunAsync("cycle-one", _ => Task.CompletedTask, CancellationToken.None);
+            var running = flow.RunAsync("cycle-one", _ => Task.CompletedTask, CancellationToken.None,
+                _ => { Assert.Equal(4, called.Count); return Task.CompletedTask; },
+                _ => { Assert.Empty(called); return Task.CompletedTask; });
             await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
             Assert.Single(called);
             Assert.False(running.IsCompleted);
             release.SetResult();
             if (failedStage < 0) await running;
             else await Assert.ThrowsAsync<InvalidOperationException>(() => running);
-            Assert.Equal(NativeLibraryFlow.TaskKeys.Take(failedStage < 0 ? 4 : failedStage + 1), called);
+            string[] expected = ["XtreamPostProcessorEnrich", "XtreamPostProcessorNormalize", "MergeMoviesTask", "MergeEpisodesTask", "task-meilisearch-reindex-full"];
+            Assert.Equal(expected.Take(failedStage < 0 ? expected.Length : failedStage + 1), called);
             var checkpoint = System.Text.Json.JsonSerializer.Deserialize<NativeLibraryFlow.Checkpoint>(await File.ReadAllTextAsync(path))!;
             Assert.Equal(failedStage < 0 ? "completed" : "failed", checkpoint.Status);
+            Assert.Equal(2, checkpoint.SchemaVersion);
             await new NativeLibraryFlow(manager, path, NullLogger.Instance).RunAsync("cycle-one", _ => Task.CompletedTask, CancellationToken.None);
-            Assert.Equal(failedStage < 0 ? 4 : failedStage + 1, called.Count);
+            Assert.Equal(failedStage < 0 ? expected.Length : failedStage + 1, called.Count);
         }
         finally { Directory.Delete(directory, true); }
     }
@@ -91,6 +96,11 @@ public sealed class SyncCompletionTests
     [InlineData("changed-timer")]
     [InlineData("cancelled")]
     [InlineData("integrity-failed")]
+    [InlineData("legacy-completed")]
+    [InlineData("legacy-failed")]
+    [InlineData("legacy-running")]
+    [InlineData("legacy-ready")]
+    [InlineData("legacy-new-cycle")]
     public async Task NativeFlowRecoveryAndSafetyGates(string scenario)
     {
         var directory = Path.Combine(Path.GetTempPath(), "xtream-flow-guards-" + Guid.NewGuid().ToString("N"));
@@ -102,8 +112,11 @@ public sealed class SyncCompletionTests
             var recovering = scenario.StartsWith("running-", StringComparison.Ordinal);
             var state = new NativeLibraryFlow.Checkpoint
             {
-                Cycle = "cycle-one", NextStage = recovering ? 1 : 0,
-                Status = recovering ? "running" : scenario == "new-cycle" ? "completed" : "ready", RequestedUtc = requested
+                SchemaVersion = scenario.StartsWith("legacy-", StringComparison.Ordinal) ? 1 : 2,
+                Cycle = "cycle-one", NextStage = recovering ? 2 : scenario == "legacy-completed" ? 4 : 0,
+                Status = recovering || scenario == "legacy-running" ? "running"
+                    : scenario is "new-cycle" or "legacy-completed" ? "completed"
+                    : scenario == "legacy-failed" ? "failed" : "ready", RequestedUtc = requested
             };
             await File.WriteAllTextAsync(path, System.Text.Json.JsonSerializer.Serialize(state));
             var results = new Dictionary<string, TaskResult>
@@ -147,13 +160,15 @@ public sealed class SyncCompletionTests
                 return Task.CompletedTask;
             }
             var operation = new NativeLibraryFlow(manager, path, NullLogger.Instance).RunAsync(
-                scenario == "new-cycle" ? "cycle-two" : "cycle-one", Ensure, cancellation.Token,
+                scenario is "new-cycle" or "legacy-new-cycle" ? "cycle-two" : "cycle-one", Ensure, cancellation.Token,
                 _ => scenario == "integrity-failed" ? throw new InvalidOperationException("Missing reciprocal version link") : Task.CompletedTask);
-            if (scenario is "running-success" or "new-cycle") await operation;
+            if (scenario is "running-success" or "new-cycle" or "legacy-new-cycle" or "legacy-completed" or "legacy-failed") await operation;
+            else if (scenario is "legacy-running" or "legacy-ready") await Assert.ThrowsAsync<InvalidDataException>(() => operation);
             else if (scenario == "cancelled") await Assert.ThrowsAnyAsync<OperationCanceledException>(() => operation);
             else await Assert.ThrowsAsync<InvalidOperationException>(() => operation);
-            Assert.Equal(scenario switch { "running-success" => 2, "new-cycle" => 4, "integrity-failed" => 3, "changed-sync" or "changed-timer" => 1, _ => 0 }, calls.Count);
-            if (scenario == "running-success") Assert.Equal(NativeLibraryFlow.TaskKeys.Skip(2), calls);
+            Assert.Equal(scenario switch { "running-success" => 2, "new-cycle" or "legacy-new-cycle" => 5, "integrity-failed" => 4, "changed-sync" or "changed-timer" => 1, _ => 0 }, calls.Count);
+            if (scenario == "running-success") Assert.Equal(NativeLibraryFlow.TaskKeys.Skip(3), calls);
+            if (scenario == "legacy-new-cycle") Assert.Equal("XtreamPostProcessorEnrich", calls[0]);
         }
         finally { Directory.Delete(directory, true); }
     }

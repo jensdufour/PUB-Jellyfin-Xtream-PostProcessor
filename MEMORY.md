@@ -1,5 +1,15 @@
 # Xtream Post Processor Decisions
 
+- Oct5 0.6.0.0 restores automatic enrichment before titles ONLY in RunLibraryFlow.
+  User confirmed original overview enrichment was intended;0.3 Sep16 watcher
+  rewrite dropped Enrich in favor of Normalize, and0.4 omitted it from ordering.
+  Reuse native task/fallback policy/item checkpoints, no new timer or writer.
+  Schema2 distinguishes five stages: old completed/failed cycles remain untouched,
+  old same-cycle incomplete state rejects, new sync/scan starts enrichment first.
+  Preserve versions before first stage; verify after both merges/before search.
+  Focused26cases pass including order/failure/old-checkpoint handling; deployment
+  and first five-stage production run remain pending, not claimed by unit tests.
+
 - 0.5.0.3 setsIncludeOwnedItems on the separate child-label query. This extends
   canonicalSeriesName repair to owned alternate Episodes/Seasons without changing
   relationship logic or metadata lookup. Regression simulates Jellyfin hiding the
