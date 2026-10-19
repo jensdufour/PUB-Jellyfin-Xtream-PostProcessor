@@ -99,6 +99,37 @@ public sealed class VersionLinkTests
     }
 
     [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ReconcilesLinkedRootWithVerifiedLocalOwnerWithoutLosingSources(bool pointerAlreadySaved)
+    {
+        var owner = Item(Guid.NewGuid());
+        var local = Item(Guid.NewGuid(), owner.Id) with { Owner = owner.Id };
+        var linked = Item(Guid.NewGuid(), pointerAlreadySaved ? owner.Id : null) with { LinkedIds = [local.Id] };
+        var otherLocal = Item(Guid.NewGuid(), linked.Id) with { Owner = linked.Id };
+        owner = owner with { LocalPaths = [local.Path] };
+        linked = linked with { LocalPaths = [otherLocal.Path] };
+        var items = new[] { owner, local, linked, otherLocal }.ToDictionary(item => item.Id);
+        var before = VersionLinkService.Capture("cycle", items);
+
+        var repair = Assert.Single(VersionLinkService.Plan(items));
+
+        Assert.Equal(linked.Id, repair.Child);
+        Assert.Equal(linked.Primary, repair.PreviousPrimary);
+        Assert.Equal(owner.Id, repair.Primary);
+        Assert.True(repair.AddLink);
+        items[linked.Id] = linked with { Primary = repair.Primary };
+        items[owner.Id] = owner with { LinkedIds = [linked.Id] };
+        Assert.Empty(VersionLinkService.Plan(items));
+        VersionLinkService.VerifyPreserved("cycle", before, items);
+        Assert.Equal(owner.Id, items[local.Id].Owner);
+        Assert.Equal(linked.Id, items[otherLocal.Id].Owner);
+        Assert.Equal([local.Path], items[owner.Id].LocalPaths);
+        Assert.Equal([otherLocal.Path], items[linked.Id].LocalPaths);
+        Assert.Equal([local.Id], items[linked.Id].LinkedIds);
+    }
+
+    [Theory]
     [InlineData("cycle")]
     [InlineData("missing")]
     [InlineData("identity")]
@@ -106,6 +137,9 @@ public sealed class VersionLinkTests
     [InlineData("local-gap")]
     [InlineData("stale-outgoing")]
     [InlineData("multiple-incoming")]
+    [InlineData("owned-outgoing-identity")]
+    [InlineData("owned-outgoing-number")]
+    [InlineData("owned-outgoing-owner")]
     public void RejectsUnsafeRelationships(string scenario)
     {
         var primary = Item(Guid.NewGuid());
@@ -118,6 +152,15 @@ public sealed class VersionLinkTests
         if (scenario == "local-gap") child = child with { Owner = primary.Id };
         if (scenario == "stale-outgoing") { primary = primary with { LinkedIds = [child.Id] }; child = child with { Primary = null }; }
         if (scenario == "multiple-incoming") { primary = primary with { LinkedIds = [child.Id] }; other = other with { LinkedIds = [child.Id] }; }
+        if (scenario.StartsWith("owned-outgoing-", StringComparison.Ordinal))
+        {
+            child = child with { Owner = primary.Id };
+            primary = primary with { LocalPaths = [child.Path] };
+            other = other with { LinkedIds = [child.Id] };
+            if (scenario == "owned-outgoing-identity") other = other with { Providers = new() { ["Tvdb"] = "999" } };
+            if (scenario == "owned-outgoing-number") other = other with { Number = 3 };
+            if (scenario == "owned-outgoing-owner") other = other with { Owner = Guid.NewGuid() };
+        }
         var items = new[] { primary, child, other }.ToDictionary(item => item.Id);
         Assert.Throws<InvalidDataException>(() => VersionLinkService.Plan(items));
     }

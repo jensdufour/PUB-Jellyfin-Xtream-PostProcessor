@@ -18,7 +18,7 @@ internal sealed class VersionLinkService(ILibraryManager library, IItemRepositor
         int? Season, int? Number, int? EndNumber, Guid Series, Dictionary<string, string> Providers,
         string[] LocalPaths, Guid[] LinkedIds);
 
-    internal sealed record Repair(Guid Child, Guid PreviousPrimary, Guid Primary, bool AddLink, bool RemoveSelfLink = false);
+    internal sealed record Repair(Guid Child, Guid? PreviousPrimary, Guid Primary, bool AddLink, bool RemoveSelfLink = false);
     internal sealed record Baseline(string Cycle, string MediaHash, Dictionary<Guid, Guid> Groups);
 
     internal static IReadOnlyList<Repair> Plan(IReadOnlyDictionary<Guid, VersionItem> items)
@@ -71,8 +71,23 @@ internal sealed class VersionLinkService(ILibraryManager library, IItemRepositor
         foreach (var (child, parents) in incoming)
         {
             var expected = corrected.TryGetValue(child, out var repaired) ? repaired : items[child].Primary;
+            if (expected.HasValue && parents.Contains(expected.Value) && items[child].Owner == expected.Value
+                && items[expected.Value].LocalPaths.Contains(items[child].Path))
+            {
+                var primary = Root(child, items, corrected);
+                foreach (var parent in parents)
+                {
+                    var linkedRoot = Root(parent, items, corrected);
+                    if (linkedRoot == primary) continue;
+                    if (items[linkedRoot].Owner != Guid.Empty || !SameIdentity(items[child], items[primary])
+                        || !SameIdentity(items[child], items[linkedRoot]) || !SameIdentity(items[primary], items[linkedRoot]))
+                        throw new InvalidDataException($"Cannot prove the media identity for linked local version {child}");
+                    repairs.Add(new Repair(linkedRoot, items[linkedRoot].Primary, primary, true));
+                    corrected.Add(linkedRoot, primary);
+                }
+            }
             if (!expected.HasValue || !parents.Contains(expected.Value)
-                || parents.Any(parent => Root(parent, items) != Root(child, items)))
+                || parents.Any(parent => Root(parent, items, corrected) != Root(child, items, corrected)))
                 throw new InvalidDataException($"Nonreciprocal or conflicting outgoing version link for {child}");
         }
         repairs.AddRange(items.Values.Where(item => item.LinkedIds.Contains(item.Id))
@@ -178,14 +193,15 @@ internal sealed class VersionLinkService(ILibraryManager library, IItemRepositor
                 throw new InvalidDataException($"Post-merge version group lost a source: {group.Key}");
     }
 
-    private static Guid Root(Guid id, IReadOnlyDictionary<Guid, VersionItem> items)
+    private static Guid Root(Guid id, IReadOnlyDictionary<Guid, VersionItem> items, IReadOnlyDictionary<Guid, Guid>? corrected = null)
     {
         var seen = new HashSet<Guid>();
         while (true)
         {
             if (!seen.Add(id) || !items.TryGetValue(id, out var item))
                 throw new InvalidDataException("Missing or cyclic version group");
-            if (item.Primary is not { } parent) return id;
+            var primary = corrected is not null && corrected.TryGetValue(id, out var replacement) ? replacement : item.Primary;
+            if (primary is not { } parent) return id;
             id = parent;
         }
     }

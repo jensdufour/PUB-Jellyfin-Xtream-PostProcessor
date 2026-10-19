@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.6.0.1
+
+- Reconcile an existing linked edition with its verified local-owner group when matching media IDs and episode numbers prove the same identity.
+- Preserve local ownership, both roots' local sources and existing links; reject conflicting IDs, episode numbers or ownership instead of bypassing the integrity gate.
+- Recover a partially saved root pointer by restoring its missing reciprocal link through the existing native repair path.
+
 ## 0.6.0.0
 
 - Restore exact-TMDb missing-overview enrichment before title normalization in the opt-in ordered flow, then await movie merge, episode merge and search.

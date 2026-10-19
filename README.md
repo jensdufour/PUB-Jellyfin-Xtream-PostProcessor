@@ -1,7 +1,7 @@
 # Xtream Post Processor for Jellyfin
 
 Portable Jellyfin 12 plugin for canonical Movie and Series titles after Xtream
-Library synchronization and indexing. Version **0.6.0.0** targets .NET 10
+Library synchronization and indexing. Version **0.6.0.1** targets .NET 10
 and the Jellyfin 12.0 API baseline. The selected rollout is repository installation
 on Jellyfin 12.1 when native writers are idle.
 Release tags build and publish the package and catalog through GitHub Actions.
@@ -30,6 +30,12 @@ Jellyfin12.1 native repository installation and activation passed October5, with
 users, settings, schedules and checkpoints preserved. The completed old cycle
 was not replayed; the first five-stage nightly run remains to be observed.
 
+Version0.6.0.1 also reconciles linked editions whose local owner became a separate
+primary during scanning. Matching media identity and a verified local-owner link
+are required before connecting the roots. Native persistence retains local
+ownership, local sources and existing links; conflicting identities still stop
+the flow. An interrupted reciprocal-link write remains repairable on recovery.
+
 ## Features
 
 - Resolve the existing exact TMDb ID through Jellyfin's enabled `TheMovieDb`
@@ -51,7 +57,7 @@ was not replayed; the first five-stage nightly run remains to be observed.
 
 ## Install
 
-Add this repository in Jellyfin and select **Xtream Post Processor 0.6.0.0**.
+Add this repository in Jellyfin and select **Xtream Post Processor 0.6.0.1**.
 Earlier catalog entries remain available for Jellyfin 10.11; do not select them
 on Jellyfin 12.
 
@@ -70,7 +76,7 @@ package does not require restarting immediately. The task names remain under
 	changing sync. Preserve the database, configuration and affected NFOs through
 	the existing backup procedure; an application-disk backup alone does not
 	cover media on separate mounts. Do not interrupt the running scan to install.
-2. Install version `0.6.0.0` through the repository and leave its restart pending
+2. Install version `0.6.0.1` through the repository and leave its restart pending
 	until the current scan finishes and a restart is approved. On an upgrade,
 	persist `AuditOnly=true` before startup; saved write settings override defaults.
 3. Set the existing absolute Xtream media root, enable the native `TheMovieDb`

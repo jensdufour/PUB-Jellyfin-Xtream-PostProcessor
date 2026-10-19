@@ -1,5 +1,13 @@
 # Xtream Post Processor Decisions
 
+- 0.6.0.1 connects an existing linked root to a verified local-owner group only
+  after matching media identity, episode numbers and ownership. Preserve all
+  local ownership and sources; do not prune the old linked edge or bypass the
+  integrity gate. Nullable PreviousPrimary represents a formerly separate root.
+  Resolve planned root corrections during validation. Partial pointer saves
+  retain the existing missing-reciprocal-link recovery path. Failed flow
+  checkpoints still require deliberate recovery after the cause is corrected.
+
 - Oct5 0.6.0.0 restores automatic enrichment before titles ONLY in RunLibraryFlow.
   User confirmed original overview enrichment was intended;0.3 Sep16 watcher
   rewrite dropped Enrich in favor of Normalize, and0.4 omitted it from ordering.
