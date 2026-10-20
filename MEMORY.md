@@ -1,5 +1,17 @@
 # Xtream Post Processor Decisions
 
+- 0.6.0.2 child-label batching uses one native ancestor query per500
+  normalization candidates, grouping cached-series children by SeriesId. Keep
+  owned/alternate editions and bounded run-local batches. Prefetch only decides
+  whether a series needs a fresh parent-scoped read; never write prefetched
+  objects or weaken identity/lock/indexing/sync/settings guards. Preserve
+  audit-only behavior, provider decisions, NFO checks and retryable checkpoints.
+  Regressions cover stale batches, foreign/locked children, parent edits,
+  cancellation and500/501/1001-candidate boundaries. A ready schema2 stage1
+  checkpoint resumes titles without repeating enrichment or version preflight;
+  retain its existing cycle and version baseline. Automated tests are not a
+  production-performance/deployment claim.
+
 - 0.6.0.1 connects an existing linked root to a verified local-owner group only
   after matching media identity, episode numbers and ownership. Preserve all
   local ownership and sources; do not prune the old linked edge or bypass the

@@ -136,6 +136,31 @@ public sealed class LibraryWriteService
             $"TMDB {plan.Item.TmdbId} has no exact {item.GetType().Name} result");
     }
 
+    internal ILookup<Guid, BaseItem> ReadChildLabels(
+        IEnumerable<LibraryItemSnapshot> snapshots,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var seriesIds = snapshots.Where(snapshot => snapshot.IsSeries)
+            .Select(snapshot => Guid.Parse(snapshot.Id)).Distinct().ToArray();
+        if (seriesIds.Length == 0) return Array.Empty<BaseItem>().ToLookup(child => child.Id);
+        var query = new InternalItemsQuery
+        {
+            AncestorIds = seriesIds, IncludeItemTypes = [BaseItemKind.Season, BaseItemKind.Episode],
+            Recursive = true, GroupByPresentationUniqueKey = false, EnableTotalRecordCount = false,
+            IncludeOwnedItems = true
+        };
+        typeof(InternalItemsQuery).GetProperty("IncludeAlternateVersions")?.SetValue(query, true);
+        var children = _libraryManager.GetItemList(query);
+        cancellationToken.ThrowIfCancellationRequested();
+        return children.ToLookup(child => child switch
+        {
+            Season season => season.SeriesId,
+            Episode episode => episode.SeriesId,
+            _ => Guid.Empty
+        });
+    }
+
     internal async Task<bool> ApplyTitleAsync(
         NormalizationPlanItem plan,
         CancellationToken cancellationToken,
@@ -206,7 +231,7 @@ public sealed class LibraryWriteService
     }
 
     internal async Task<bool> ApplyChildLabelsAsync(LibraryItemSnapshot snapshot, CancellationToken cancellationToken,
-        Func<Task>? beforeWrite = null)
+        Func<Task>? beforeWrite = null, IEnumerable<BaseItem>? prefetchedChildren = null)
     {
         cancellationToken.ThrowIfCancellationRequested();
         var item = GetLiveItem(snapshot);
@@ -215,6 +240,12 @@ public sealed class LibraryWriteService
         var changed = false;
         if (item is Series series)
         {
+            if (prefetchedChildren is not null && !prefetchedChildren.Any(child => child switch
+            {
+                Season season => season.SeriesId == series.Id && season.SeriesName != series.Name,
+                Episode episode => episode.SeriesId == series.Id && episode.SeriesName != series.Name,
+                _ => false
+            })) return false;
             var query = new InternalItemsQuery
             {
                 Parent = series, IncludeItemTypes = [BaseItemKind.Season, BaseItemKind.Episode],

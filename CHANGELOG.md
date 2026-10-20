@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.6.0.2
+
+- Batch cached-series child-label discovery in groups of up to 500 normalization candidates instead of querying every unchanged series separately.
+- Re-read changed series through the existing native parent-scoped query before writes, retaining owned/alternate editions, identity and lock checks, sync/settings guards and retryable checkpoints.
+- Keep batching local to each task run; audit-only behavior, provider lookups, NFO verification, schedules and version relationships are unchanged.
+
 ## 0.6.0.1
 
 - Reconcile an existing linked edition with its verified local-owner group when matching media IDs and episode numbers prove the same identity.

@@ -1,7 +1,7 @@
 # Xtream Post Processor for Jellyfin
 
 Portable Jellyfin 12 plugin for canonical Movie and Series titles after Xtream
-Library synchronization and indexing. Version **0.6.0.1** targets .NET 10
+Library synchronization and indexing. Version **0.6.0.2** targets .NET 10
 and the Jellyfin 12.0 API baseline. The selected rollout is repository installation
 on Jellyfin 12.1 when native writers are idle.
 Release tags build and publish the package and catalog through GitHub Actions.
@@ -57,7 +57,7 @@ the flow. An interrupted reciprocal-link write remains repairable on recovery.
 
 ## Install
 
-Add this repository in Jellyfin and select **Xtream Post Processor 0.6.0.1**.
+Add this repository in Jellyfin and select **Xtream Post Processor 0.6.0.2**.
 Earlier catalog entries remain available for Jellyfin 10.11; do not select them
 on Jellyfin 12.
 
@@ -76,7 +76,7 @@ package does not require restarting immediately. The task names remain under
 	changing sync. Preserve the database, configuration and affected NFOs through
 	the existing backup procedure; an application-disk backup alone does not
 	cover media on separate mounts. Do not interrupt the running scan to install.
-2. Install version `0.6.0.1` through the repository and leave its restart pending
+2. Install version `0.6.0.2` through the repository and leave its restart pending
 	until the current scan finishes and a restart is approved. On an upgrade,
 	persist `AuditOnly=true` before startup; saved write settings override defaults.
 3. Set the existing absolute Xtream media root, enable the native `TheMovieDb`
@@ -225,6 +225,14 @@ and unchanged timestamps cannot suppress label repair. Version0.5.0.3 also sets
 repaired. Local-only checks do not read or rewrite the parent's NFO. A label-save
 failure retries locally without discarding the canonical decision. Reports
 separate remote lookups from local child checks.
+Version0.6.0.2 reads cached-series children once per group
+of up to500normalization candidates, including hidden owned/alternate editions.
+Unchanged series skip their separate child query. If a batch finds a differing
+label, the existing native parent-scoped query reads that series again before
+the guarded write path runs; prefetched objects are never used for writes.
+Parent identity/locks, per-item indexing checks, immediate sync/settings write
+guards and retryable checkpoints remain unchanged. Batches are run-local and
+bounded, not a persistent cache; subsequent runs still check every cached series.
 Legacy checkpoints acquire `providerFingerprint` without lookup only if their
 original full fingerprint still matches; changed legacy checkpoints are revalidated
 once, never blindly trusted or wiped. Provider work precedes cached local checks

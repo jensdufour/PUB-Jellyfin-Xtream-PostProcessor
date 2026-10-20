@@ -1,4 +1,5 @@
 using Jellyfin.Plugin.XtreamPostProcessor.Configuration;
+using Jellyfin.Plugin.XtreamPostProcessor.Planning;
 using Jellyfin.Plugin.XtreamPostProcessor.Services;
 using Jellyfin.Plugin.XtreamPostProcessor.State;
 using Jellyfin.Plugin.XtreamPostProcessor.Sync;
@@ -101,6 +102,7 @@ public sealed class SyncCompletionTests
     [InlineData("legacy-running")]
     [InlineData("legacy-ready")]
     [InlineData("legacy-new-cycle")]
+    [InlineData("resume-titles")]
     public async Task NativeFlowRecoveryAndSafetyGates(string scenario)
     {
         var directory = Path.Combine(Path.GetTempPath(), "xtream-flow-guards-" + Guid.NewGuid().ToString("N"));
@@ -113,7 +115,7 @@ public sealed class SyncCompletionTests
             var state = new NativeLibraryFlow.Checkpoint
             {
                 SchemaVersion = scenario.StartsWith("legacy-", StringComparison.Ordinal) ? 1 : 2,
-                Cycle = "cycle-one", NextStage = recovering ? 2 : scenario == "legacy-completed" ? 4 : 0,
+                Cycle = "cycle-one", NextStage = recovering ? 2 : scenario == "legacy-completed" ? 4 : scenario == "resume-titles" ? 1 : 0,
                 Status = recovering || scenario == "legacy-running" ? "running"
                     : scenario is "new-cycle" or "legacy-completed" ? "completed"
                     : scenario == "legacy-failed" ? "failed" : "ready", RequestedUtc = requested
@@ -162,13 +164,14 @@ public sealed class SyncCompletionTests
             var operation = new NativeLibraryFlow(manager, path, NullLogger.Instance).RunAsync(
                 scenario is "new-cycle" or "legacy-new-cycle" ? "cycle-two" : "cycle-one", Ensure, cancellation.Token,
                 _ => scenario == "integrity-failed" ? throw new InvalidOperationException("Missing reciprocal version link") : Task.CompletedTask);
-            if (scenario is "running-success" or "new-cycle" or "legacy-new-cycle" or "legacy-completed" or "legacy-failed") await operation;
+            if (scenario is "running-success" or "new-cycle" or "legacy-new-cycle" or "legacy-completed" or "legacy-failed" or "resume-titles") await operation;
             else if (scenario is "legacy-running" or "legacy-ready") await Assert.ThrowsAsync<InvalidDataException>(() => operation);
             else if (scenario == "cancelled") await Assert.ThrowsAnyAsync<OperationCanceledException>(() => operation);
             else await Assert.ThrowsAsync<InvalidOperationException>(() => operation);
-            Assert.Equal(scenario switch { "running-success" => 2, "new-cycle" or "legacy-new-cycle" => 5, "integrity-failed" => 4, "changed-sync" or "changed-timer" => 1, _ => 0 }, calls.Count);
+            Assert.Equal(scenario switch { "running-success" => 2, "new-cycle" or "legacy-new-cycle" => 5, "integrity-failed" or "resume-titles" => 4, "changed-sync" or "changed-timer" => 1, _ => 0 }, calls.Count);
             if (scenario == "running-success") Assert.Equal(NativeLibraryFlow.TaskKeys.Skip(3), calls);
             if (scenario == "legacy-new-cycle") Assert.Equal("XtreamPostProcessorEnrich", calls[0]);
+            if (scenario == "resume-titles") Assert.Equal(NativeLibraryFlow.TaskKeys.Skip(1), calls);
         }
         finally { Directory.Delete(directory, true); }
     }
@@ -344,6 +347,99 @@ public sealed class SyncCompletionTests
                 Assert.Equal(2, lookups);
                 Assert.Equal("Canonical", episode.SeriesName);
             }
+        }
+        finally { Directory.Delete(directory, true); }
+    }
+
+    [Theory]
+    [InlineData(500, 1)]
+    [InlineData(501, 2)]
+    [InlineData(1001, 3)]
+    public async Task TaskBatchesCachedSeriesAndPreservesCheckpoints(int seriesCount, int expectedBatches)
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "xtream-task-batches-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(Path.Combine(directory, "Series"));
+        try
+        {
+            var ended = DateTimeOffset.UtcNow.AddMinutes(-1);
+            var history = Path.Combine(directory, "sync.json");
+            await File.WriteAllTextAsync(history, System.Text.Json.JsonSerializer.Serialize(new[]
+            {
+                new XtreamSyncResult { StartTime = ended.AddMinutes(-1), EndTime = ended, Success = true }
+            }));
+            var paths = InterfaceStub.Create<IApplicationPaths>((_, _) => directory);
+            var plugin = new Plugin(paths, InterfaceStub.Create<IXmlSerializer>((method, _) =>
+                method.Name.StartsWith("Deserialize", StringComparison.Ordinal) ? new PluginConfiguration() : null));
+            plugin.Configuration.XtreamRoot = directory;
+            plugin.Configuration.SyncHistoryRelativePath = history;
+            plugin.Configuration.AuditOnly = false;
+            var seriesById = Enumerable.Range(0, seriesCount).Select(index => new Series
+            {
+                Id = Guid.NewGuid(), Name = "Canonical " + index, Path = Path.Combine(directory, "Series", index.ToString())
+            }).ToDictionary(series => series.Id);
+            var state = new EnrichmentState();
+            foreach (var series in seriesById.Values)
+            {
+                series.ProviderIds["Tmdb"] = "42";
+                var snapshot = new LibraryItemSnapshot(series.Id.ToString(), typeof(Series).FullName!, series.Name,
+                    series.OriginalTitle, series.Path, series.Overview, "42", series.DateCreated, true,
+                    series.DateLastRefreshed, "nl", "BE");
+                state.Items[snapshot.Id] = new EnrichmentStateItem
+                {
+                    Fingerprint = CandidatePlanner.NormalizationFingerprint(snapshot),
+                    ProviderFingerprint = CandidatePlanner.ProviderFingerprint(snapshot), Status = "canonical"
+                };
+            }
+            var batches = new List<Guid[]>();
+            List<BaseItem> ReadItems(InternalItemsQuery query)
+            {
+                if (query.IncludeItemTypes.Contains(BaseItemKind.Series)) return seriesById.Values.Cast<BaseItem>().ToList();
+                Assert.InRange(query.AncestorIds.Length, 1, 500);
+                Assert.True(query.IncludeOwnedItems);
+                batches.Add(query.AncestorIds);
+                return query.AncestorIds.Select(identifier => (BaseItem)new Episode
+                {
+                    Id = Guid.NewGuid(), SeriesId = identifier, SeriesName = seriesById[identifier].Name
+                }).ToList();
+            }
+            var library = InterfaceStub.Create<ILibraryManager>((method, arguments) => method.Name switch
+            {
+                "get_IsScanRunning" => false,
+                "GetItemById" => seriesById[(Guid)arguments![0]!],
+                "GetLibraryOptions" => new LibraryOptions { PreferredMetadataLanguage = "nl", MetadataCountryCode = "BE" },
+                "GetItemList" => ReadItems((InternalItemsQuery)arguments![0]!),
+                _ => throw new InvalidOperationException("Unexpected write: " + method.Name)
+            });
+            var scan = InterfaceStub.Create<IScheduledTask>((_, _) => "RefreshLibrary");
+            var manager = InterfaceStub.Create<ITaskManager>((_, _) => new[]
+            {
+                Worker(scan, () => TaskState.Idle, () => new TaskResult
+                {
+                    Status = TaskCompletionStatus.Completed, StartTimeUtc = ended.UtcDateTime, EndTimeUtc = DateTime.UtcNow
+                })
+            });
+            var stateReader = new EnrichmentStateReader();
+            var statePath = Path.Combine(directory, "xtream-post-processor", "title-state.json");
+            await stateReader.WriteAsync(statePath, state, CancellationToken.None);
+            using var audit = new LibraryAuditService(library, paths, new SyncHistoryReader(), stateReader,
+                InterfaceStub.Create<IServerConfigurationManager>((_, _) => new ServerConfiguration()), manager);
+            var provider = InterfaceStub.Create<IProviderManager>((method, _) =>
+                throw new InvalidOperationException("Unexpected provider call: " + method.Name));
+            var task = new NormalizeXtreamTask(audit, new AuditReportWriter(paths), new LibraryWriteService(library, provider),
+                stateReader, NullLogger<NormalizeXtreamTask>.Instance);
+
+            await task.ExecuteAsync(new Progress<double>(), CancellationToken.None);
+
+            Assert.Equal(expectedBatches, batches.Count);
+            Assert.Equal(seriesById.Keys.Order(), batches.SelectMany(batch => batch).Order());
+            state = await stateReader.ReadAsync(statePath, CancellationToken.None);
+            Assert.Equal(seriesCount, state.Items.Count);
+            Assert.All(state.Items.Values, item =>
+            {
+                Assert.Equal("canonical", item.Status);
+                Assert.NotNull(item.AttemptedUtc);
+                Assert.NotNull(item.ProviderFingerprint);
+            });
         }
         finally { Directory.Delete(directory, true); }
     }

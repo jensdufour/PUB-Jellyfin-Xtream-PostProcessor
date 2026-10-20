@@ -103,12 +103,16 @@ public sealed class NormalizeXtreamTask : IScheduledTask, IConfigurableScheduled
                 var statePath = _auditService.ResolveOwnedStatePath("xtream-post-processor/title-state.json");
                 var state = await _stateReader.ReadAsync(statePath, cancellationToken).ConfigureAwait(false);
                 var processedCount = 0;
+                var childLabels = _writeService.ReadChildLabels([], cancellationToken);
                 try
                 {
                     foreach (var candidate in candidates)
                     {
                         cancellationToken.ThrowIfCancellationRequested();
                         await _auditService.WaitForIndexingAsync(configuration, report.SyncResult!, cancellationToken).ConfigureAwait(false);
+                        if (writeEnabled && processedCount % 500 == 0)
+                            childLabels = _writeService.ReadChildLabels(candidates.Skip(processedCount).Take(500)
+                                .Where(current => current.Decision.Source == "cached-canonical").Select(current => current.Item), cancellationToken);
                         var fingerprint = CandidatePlanner.NormalizationFingerprint(candidate.Item);
                         var providerFingerprint = CandidatePlanner.ProviderFingerprint(candidate.Item);
                         var status = "provider-unavailable";
@@ -120,7 +124,8 @@ public sealed class NormalizeXtreamTask : IScheduledTask, IConfigurableScheduled
                             if (writeEnabled && cached)
                             {
                                 if (candidate.Item.IsSeries && await _writeService.ApplyChildLabelsAsync(candidate.Item, cancellationToken,
-                                    () => _auditService.EnsureCanWriteAsync(configuration, report.SyncResult!, cancellationToken)).ConfigureAwait(false)) appliedCount++;
+                                    () => _auditService.EnsureCanWriteAsync(configuration, report.SyncResult!, cancellationToken),
+                                    childLabels[Guid.Parse(candidate.Item.Id)]).ConfigureAwait(false)) appliedCount++;
                                 status = "canonical";
                             }
                             else if (writeEnabled && decision.Decision.Source == "exact-tmdb")
