@@ -36,6 +36,14 @@ are required before connecting the roots. Native persistence retains local
 ownership, local sources and existing links; conflicting identities still stop
 the flow. An interrupted reciprocal-link write remains repairable on recovery.
 
+The integrity snapshot captures item-level provider IDs and `SeriesId`, not
+parent-series provider IDs. Episode identity requires exact season, episode and
+end-number coordinates. Shared TVDB/TMDb/IMDb IDs must all agree; when none are
+shared, the non-empty `SeriesId` must match. If these checks cannot prove the
+relationship, the gate stops. Do not infer identity by title or bypass the gate.
+Any future parent-series identity support must retain exact episode coordinates
+and include negative collision fixtures before checkpoint recovery.
+
 ## Features
 
 - Resolve the existing exact TMDb ID through Jellyfin's enabled `TheMovieDb`
