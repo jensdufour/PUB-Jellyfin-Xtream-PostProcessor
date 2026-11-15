@@ -43,6 +43,21 @@ public sealed class VersionLinkTests
             new() { ["Tvdb"] = "189328" }, [], []);
 
     [Fact]
+    public void TracksMultipleLinkedChildrenForTheSamePrimary()
+    {
+        var existingId = Guid.NewGuid();
+        var firstChild = Guid.NewGuid();
+        var secondChild = Guid.NewGuid();
+        var expected = new List<Guid> { existingId };
+
+        VersionLinkService.AddExpectedLinkedId(expected, firstChild);
+        VersionLinkService.AddExpectedLinkedId(expected, secondChild);
+        VersionLinkService.AddExpectedLinkedId(expected, firstChild);
+
+        Assert.Equal([existingId, firstChild, secondChild], expected);
+    }
+
+    [Fact]
     public void SnapshotBatchesReadEveryIdOrFailClosed()
     {
         var ids = Enumerable.Range(0, 1001).Select(_ => Guid.NewGuid()).ToArray();

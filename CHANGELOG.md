@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.6.0.9
+
+- Track linked-child additions made by earlier repairs in the same pass, so a shared primary does not fail later pre-save checks against its stale initial snapshot.
+- Continue rejecting link, identity, path, owner and lock changes outside the repair pass.
+
 ## 0.6.0.8
 
 - Restore a missing primary pointer from one identity-matched linked root while preserving nested local-owner descendants.

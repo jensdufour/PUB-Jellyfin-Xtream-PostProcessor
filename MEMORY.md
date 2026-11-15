@@ -1,5 +1,14 @@
 # Xtream Post Processor Decisions
 
+- 0.6.0.9 advances expected linked-child arrays after each successful native
+  repair. A later planned child sharing that primary validates against the
+  in-pass result, not the initial snapshot; unrelated link changes still fail
+  closed. Regression covers two additions and duplicate tracking. Full Release
+  suite122/122 passes. The Nov15 CT110 0.6.0.8 run exposed this guard bug after
+  581 of694 relationship operations had persisted; no later native flow stage
+  completed. Do not retry until this release is installed and the flow is safely
+  re-armed from a fresh plan.
+
 - VersionLinkService episode identity requires exact season/number/end-number
   coordinates. Shared direct episode IDs must all agree; if none are shared, an
   exact non-empty SeriesId match suffices, otherwise shared parent-series

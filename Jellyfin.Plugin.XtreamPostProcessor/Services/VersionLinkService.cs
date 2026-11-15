@@ -201,6 +201,7 @@ internal sealed class VersionLinkService(ILibraryManager library, IItemRepositor
         await ReportAsync(repair ? "planned" : "checking", items.Count, plan, token).ConfigureAwait(false);
         if (!repair && plan.Count > 0)
             throw new InvalidDataException($"Post-merge integrity failed: {plan.Count} nonreciprocal or chained version relationships");
+        var expectedLinks = items.ToDictionary(item => item.Key, item => item.Value.LinkedIds.ToList());
         foreach (var change in plan)
         {
             await ensureReady(token).ConfigureAwait(false);
@@ -208,9 +209,10 @@ internal sealed class VersionLinkService(ILibraryManager library, IItemRepositor
             if (change.RemoveSelfLink)
             {
                 if (child.PrimaryVersionId.HasValue || child.Path != items[child.Id].Path || child.IsLocked || child.LockedFields.Length > 0
-                    || !LinksMatch(child, items[child.Id]))
+                    || !LinksMatch(child, items[child.Id], expectedLinks[child.Id]))
                     throw new InvalidDataException($"Self-linked primary changed before repair: {child.Id}");
                 child.LinkedAlternateVersions = child.LinkedAlternateVersions.Where(link => link.ItemId != child.Id).ToArray();
+                expectedLinks[child.Id].RemoveAll(id => id == child.Id);
                 persistence.SaveItems([child], CancellationToken.None);
                 library.RegisterItem(repository.RetrieveItem(child.Id));
                 foreach (var alternate in child.LinkedAlternateVersions)
@@ -226,8 +228,9 @@ internal sealed class VersionLinkService(ILibraryManager library, IItemRepositor
                 var cycleSeriesProviders = ReadSeriesProviders([child, owned]);
                 if (child.PrimaryVersionId != ownedId || child.OwnerId != Guid.Empty || child.Path != items[child.Id].Path
                     || owned.PrimaryVersionId != child.Id || owned.OwnerId != child.Id || owned.Path != items[owned.Id].Path
-                    || !child.LocalAlternateVersions.Contains(owned.Path) || !LinksMatch(child, items[child.Id])
-                    || !LinksMatch(owned, items[owned.Id])
+                    || !child.LocalAlternateVersions.Contains(owned.Path)
+                    || !LinksMatch(child, items[child.Id], expectedLinks[child.Id])
+                    || !LinksMatch(owned, items[owned.Id], expectedLinks[owned.Id])
                     || !SameIdentity(Snapshot(child, cycleSeriesProviders), Snapshot(owned, cycleSeriesProviders))
                     || child.IsLocked || owned.IsLocked || child.LockedFields.Length > 0 || owned.LockedFields.Length > 0)
                     throw new InvalidDataException($"Owner-anchored primary cycle changed before repair: {child.Id}");
@@ -243,7 +246,7 @@ internal sealed class VersionLinkService(ILibraryManager library, IItemRepositor
                     || child.PrimaryVersionId != missingPrimary || child.OwnerId != items[child.Id].Owner
                     || child.Path != items[child.Id].Path || repository.RetrieveItem(missingPrimary) is not null
                     || (child.OwnerId != Guid.Empty && repository.RetrieveItem(child.OwnerId) is not null)
-                    || !LinksMatch(child, items[child.Id]) || child.IsLocked || child.LockedFields.Length > 0)
+                    || !LinksMatch(child, items[child.Id], expectedLinks[child.Id]) || child.IsLocked || child.LockedFields.Length > 0)
                     throw new InvalidDataException($"Missing primary relationship changed before repair: {child.Id}");
                 child.SetPrimaryVersionId(null);
                 persistence.SaveItems([child], CancellationToken.None);
@@ -255,10 +258,12 @@ internal sealed class VersionLinkService(ILibraryManager library, IItemRepositor
             if (child.PrimaryVersionId != change.PreviousPrimary || child.OwnerId != items[child.Id].Owner
                 || child.Path != items[child.Id].Path || primary.Path != items[primary.Id].Path
                 || primary.PrimaryVersionId.HasValue
-                || !LinksMatch(child, items[child.Id]) || !LinksMatch(primary, items[primary.Id])
+                || !LinksMatch(child, items[child.Id], expectedLinks[child.Id])
+                || !LinksMatch(primary, items[primary.Id], expectedLinks[primary.Id])
                 || (child.OwnerId != Guid.Empty && (child.OwnerId != primary.Id
                     || !primary.LocalAlternateVersions.Contains(child.Path)
-                    || !LinksMatch(child, items[child.Id]) || !LinksMatch(primary, items[primary.Id])))
+                    || !LinksMatch(child, items[child.Id], expectedLinks[child.Id])
+                    || !LinksMatch(primary, items[primary.Id], expectedLinks[primary.Id])))
                 || !SameIdentity(Snapshot(child, liveSeriesProviders), Snapshot(primary, liveSeriesProviders))
                 || child.IsLocked || primary.IsLocked || child.LockedFields.Length > 0 || primary.LockedFields.Length > 0)
                 throw new InvalidDataException($"Version identity, links or locks changed before repairing {change.Child}");
@@ -272,6 +277,7 @@ internal sealed class VersionLinkService(ILibraryManager library, IItemRepositor
             {
                 await ensureReady(token).ConfigureAwait(false);
                 library.UpsertLinkedChild(primary.Id, child.Id, LinkedChildType.LinkedAlternateVersion);
+                AddExpectedLinkedId(expectedLinks[primary.Id], child.Id);
                 library.RegisterItem(repository.RetrieveItem(primary.Id));
             }
         }
@@ -433,7 +439,12 @@ internal sealed class VersionLinkService(ILibraryManager library, IItemRepositor
             item.LocalAlternateVersions.ToArray(), item.LinkedAlternateVersions.Where(link => link.ItemId.HasValue).Select(link => link.ItemId!.Value).ToArray(),
             seriesProviders.GetValueOrDefault((item as Episode)?.SeriesId ?? Guid.Empty));
 
-    private static bool LinksMatch(Video item, VersionItem snapshot) =>
+    private static bool LinksMatch(Video item, VersionItem snapshot, IReadOnlyList<Guid> expectedLinkedIds) =>
         item.LocalAlternateVersions.SequenceEqual(snapshot.LocalPaths)
-        && item.LinkedAlternateVersions.Select(link => link.ItemId!.Value).SequenceEqual(snapshot.LinkedIds);
+        && item.LinkedAlternateVersions.Select(link => link.ItemId!.Value).SequenceEqual(expectedLinkedIds);
+
+    internal static void AddExpectedLinkedId(List<Guid> expectedLinkedIds, Guid childId)
+    {
+        if (!expectedLinkedIds.Contains(childId)) expectedLinkedIds.Add(childId);
+    }
 }
