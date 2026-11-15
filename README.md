@@ -1,7 +1,7 @@
 # Xtream Post Processor for Jellyfin
 
 Portable Jellyfin 12 plugin for canonical Movie and Series titles after Xtream
-Library synchronization and indexing. Source candidate **0.6.0.7** targets .NET 10
+Library synchronization and indexing. Source candidate **0.6.0.8** targets .NET 10
 and the Jellyfin 12.0 API baseline. The selected rollout is repository installation
 on Jellyfin 12.1 when native writers are idle.
 Release tags build and publish the package and catalog through GitHub Actions.
@@ -54,9 +54,10 @@ repaired only to that unowned root when its local path, reciprocal link and exac
 episode identity all agree. If the child is also linked under a different
 primary root, that root is rehomed to the owner root while the child's primary
 chain is preserved, and only when the child and both roots pass identity checks.
-Other or conflicting
-relationships still stop. Any failed production checkpoint still requires
-separate guarded recovery after deployment.
+An unowned item with a missing primary pointer can be reconnected to its single
+linked root only when identity is proven; nested local-owner descendants remain
+intact. Other or conflicting relationships still stop. Any failed production
+checkpoint still requires separate guarded recovery after deployment.
 
 ## Features
 
@@ -80,7 +81,7 @@ separate guarded recovery after deployment.
 ## Install
 
 After the candidate is published, add this repository in Jellyfin and select
-**Xtream Post Processor 0.6.0.7**.
+**Xtream Post Processor 0.6.0.8**.
 Earlier catalog entries remain available for Jellyfin 10.11; do not select them
 on Jellyfin 12.
 
@@ -99,7 +100,7 @@ package does not require restarting immediately. The task names remain under
 	changing sync. Preserve the database, configuration and affected NFOs through
 	the existing backup procedure; an application-disk backup alone does not
 	cover media on separate mounts. Do not interrupt the running scan to install.
-2. Install version `0.6.0.7` through the repository and leave its restart pending
+2. Install version `0.6.0.8` through the repository and leave its restart pending
 	until the current scan finishes and a restart is approved. On an upgrade,
 	persist `AuditOnly=true` before startup; saved write settings override defaults.
 3. Set the existing absolute Xtream media root, enable the native `TheMovieDb`

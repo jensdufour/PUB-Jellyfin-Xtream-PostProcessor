@@ -222,6 +222,37 @@ public sealed class VersionLinkTests
     }
 
     [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void RepairsLinkedPrimaryWithoutPointerAndPreservesOwnedDescendants(bool identitiesMatch)
+    {
+        var rootId = Guid.NewGuid();
+        var linkedId = Guid.NewGuid();
+        var localId = Guid.NewGuid();
+        var root = Item(rootId) with { Providers = new() { ["Tvdb"] = identitiesMatch ? "42" : "43" } };
+        var linked = Item(linkedId) with { Providers = new() { ["Tvdb"] = "42" }, LocalPaths = [] };
+        var local = Item(localId, linkedId) with { Owner = linkedId };
+        root = root with { LinkedIds = [linkedId] };
+        linked = linked with { LocalPaths = [local.Path] };
+        var items = new[] { root, linked, local }.ToDictionary(item => item.Id);
+
+        if (!identitiesMatch)
+        {
+            Assert.Throws<InvalidDataException>(() => VersionLinkService.Plan(items));
+            return;
+        }
+
+        var repair = Assert.Single(VersionLinkService.Plan(items));
+        Assert.Equal(linkedId, repair.Child);
+        Assert.Equal(rootId, repair.Primary);
+        items[linkedId] = linked with { Primary = rootId };
+        Assert.Empty(VersionLinkService.Plan(items));
+        Assert.Equal(linkedId, items[localId].Owner);
+        Assert.Equal([local.Path], items[linkedId].LocalPaths);
+        Assert.Equal([linkedId], items[rootId].LinkedIds);
+    }
+
+    [Theory]
     [InlineData(false, false)]
     [InlineData(true, false)]
     public void RejectsUnverifiedMissingPrimaryTarget(bool targetMissing, bool ownerMissing)
@@ -379,7 +410,6 @@ public sealed class VersionLinkTests
     [InlineData("identity")]
     [InlineData("conflict")]
     [InlineData("local-gap")]
-    [InlineData("stale-outgoing")]
     [InlineData("multiple-incoming")]
     [InlineData("owned-outgoing-identity")]
     [InlineData("owned-outgoing-number")]

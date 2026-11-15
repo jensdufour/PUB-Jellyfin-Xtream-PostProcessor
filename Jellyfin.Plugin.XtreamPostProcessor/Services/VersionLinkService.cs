@@ -48,6 +48,17 @@ internal sealed class VersionLinkService(ILibraryManager library, IItemRepositor
                 throw new InvalidDataException($"Version {parent.Id} has an unindexed local source");
         }
         var corrected = new Dictionary<Guid, Guid?>();
+        foreach (var child in items.Values.Where(item => item.Owner == Guid.Empty && !item.Primary.HasValue))
+        {
+            if (!incoming.TryGetValue(child.Id, out var linkedParents) || linkedParents.Count != 1) continue;
+            var linkedParentId = linkedParents.Single();
+            if (!items[linkedParentId].LinkedIds.Contains(child.Id)) continue;
+            var rootId = Root(linkedParentId, items);
+            var root = items[rootId];
+            if (root.Owner != Guid.Empty || root.Primary.HasValue || !SameIdentity(child, root)) continue;
+            repairs.Add(new Repair(child.Id, null, rootId, false));
+            corrected.Add(child.Id, rootId);
+        }
         foreach (var child in items.Values.Where(item => item.Owner != Guid.Empty && item.Primary.HasValue))
         {
             if (!items.TryGetValue(child.Owner, out var owner) || owner.Owner != Guid.Empty || owner.Primary.HasValue
@@ -244,6 +255,7 @@ internal sealed class VersionLinkService(ILibraryManager library, IItemRepositor
             if (child.PrimaryVersionId != change.PreviousPrimary || child.OwnerId != items[child.Id].Owner
                 || child.Path != items[child.Id].Path || primary.Path != items[primary.Id].Path
                 || primary.PrimaryVersionId.HasValue
+                || !LinksMatch(child, items[child.Id]) || !LinksMatch(primary, items[primary.Id])
                 || (child.OwnerId != Guid.Empty && (child.OwnerId != primary.Id
                     || !primary.LocalAlternateVersions.Contains(child.Path)
                     || !LinksMatch(child, items[child.Id]) || !LinksMatch(primary, items[primary.Id])))

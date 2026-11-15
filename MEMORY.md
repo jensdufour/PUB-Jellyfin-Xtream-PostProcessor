@@ -15,7 +15,9 @@
   agree; revalidate before save. If the child is also linked under a different
   primary, rehome that root while preserving the child's primary chain only when
   the child and both roots pass supported identity checks. Never infer identity
-  by title; failed checkpoint recovery remains separate.
+  by title. An unowned item with a missing primary pointer may reconnect only to
+  its single identity-matched linked root; nested local-owner descendants remain
+  intact. Failed checkpoint recovery remains separate.
 
 - 0.6.0.2 child-label batching uses one native ancestor query per500
   normalization candidates, grouping cached-series children by SeriesId. Keep

@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.6.0.8
+
+- Restore a missing primary pointer from one identity-matched linked root while preserving nested local-owner descendants.
+- Require a single linked parent and exact supported identity; conflicting parents or IDs remain failures.
+
 ## 0.6.0.7
 
 - Rehome a linked primary root to the verified local-owner root while preserving the child's existing primary chain.
