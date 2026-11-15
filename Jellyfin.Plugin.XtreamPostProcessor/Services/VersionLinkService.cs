@@ -18,10 +18,11 @@ internal sealed class VersionLinkService(ILibraryManager library, IItemRepositor
 
     internal sealed record VersionItem(Guid Id, string Path, Guid? Primary, Guid Owner, bool Episode,
         int? Season, int? Number, int? EndNumber, Guid Series, Dictionary<string, string> Providers,
-        string[] LocalPaths, Guid[] LinkedIds, Dictionary<string, string>? SeriesProviders = null);
+        string[] LocalPaths, Guid[] LinkedIds, Dictionary<string, string>? SeriesProviders = null,
+        bool PrimaryTargetMissing = false, bool OwnerTargetMissing = false);
 
     internal sealed record Repair(Guid Child, Guid? PreviousPrimary, Guid Primary, bool AddLink,
-        bool RemoveSelfLink = false, bool ClearPrimary = false);
+        bool RemoveSelfLink = false, bool ClearPrimary = false, bool ClearMissingPrimary = false);
     internal sealed record Baseline(string Cycle, string MediaHash, Dictionary<Guid, Guid> Groups);
 
     internal static IReadOnlyList<Repair> Plan(IReadOnlyDictionary<Guid, VersionItem> items)
@@ -47,6 +48,12 @@ internal sealed class VersionLinkService(ILibraryManager library, IItemRepositor
                 throw new InvalidDataException($"Version {parent.Id} has an unindexed local source");
         }
         var corrected = new Dictionary<Guid, Guid?>();
+        foreach (var child in items.Values.Where(item => item.PrimaryTargetMissing && item.Primary.HasValue))
+        {
+            if (items.ContainsKey(child.Primary!.Value) || (child.Owner != Guid.Empty && !child.OwnerTargetMissing)) continue;
+            repairs.Add(new Repair(child.Id, child.Primary, child.Id, false, ClearMissingPrimary: true));
+            corrected.Add(child.Id, null);
+        }
         foreach (var child in items.Values.Where(item => item.Primary.HasValue))
         {
             if (!items.TryGetValue(child.Primary!.Value, out var parent) || parent.Primary != child.Id) continue;
@@ -190,6 +197,19 @@ internal sealed class VersionLinkService(ILibraryManager library, IItemRepositor
                 library.RegisterItem(repository.RetrieveItem(owned.Id));
                 continue;
             }
+            if (change.ClearMissingPrimary)
+            {
+                if (change.PreviousPrimary is not { } missingPrimary
+                    || child.PrimaryVersionId != missingPrimary || child.OwnerId != items[child.Id].Owner
+                    || child.Path != items[child.Id].Path || repository.RetrieveItem(missingPrimary) is not null
+                    || (child.OwnerId != Guid.Empty && repository.RetrieveItem(child.OwnerId) is not null)
+                    || !LinksMatch(child, items[child.Id]) || child.IsLocked || child.LockedFields.Length > 0)
+                    throw new InvalidDataException($"Missing primary relationship changed before repair: {child.Id}");
+                child.SetPrimaryVersionId(null);
+                persistence.SaveItems([child], CancellationToken.None);
+                library.RegisterItem(repository.RetrieveItem(child.Id));
+                continue;
+            }
             var primary = repository.RetrieveItem(change.Primary) as Video ?? throw new InvalidDataException("Primary disappeared before repair");
             var liveSeriesProviders = ReadSeriesProviders([child, primary]);
             if (child.PrimaryVersionId != change.PreviousPrimary || child.OwnerId != items[child.Id].Owner
@@ -285,7 +305,7 @@ internal sealed class VersionLinkService(ILibraryManager library, IItemRepositor
         };
         IncludeAlternates(idsQuery);
         var ids = repository.GetItemIdsList(idsQuery);
-        var items = new Dictionary<Guid, VersionItem>();
+        var allIds = ids.ToHashSet();
         var scopedItems = ReadSnapshot(ids, batch =>
         {
             token.ThrowIfCancellationRequested();
@@ -301,7 +321,22 @@ internal sealed class VersionLinkService(ILibraryManager library, IItemRepositor
         }, item => item.Id).Where(item => !string.IsNullOrWhiteSpace(item.Path)
             && Path.GetFullPath(item.Path).StartsWith(prefix, comparison)).ToArray();
         var seriesProviders = ReadSeriesProviders(scopedItems);
-        foreach (var item in scopedItems) items.Add(item.Id, Snapshot(item, seriesProviders));
+        var missingPrimaryTargets = scopedItems.Where(item => item.PrimaryVersionId.HasValue)
+            .Select(item => item.PrimaryVersionId!.Value).Where(id => !allIds.Contains(id)).Distinct()
+            .Where(id => repository.RetrieveItem(id) is null).ToHashSet();
+        var missingOwnerTargets = scopedItems.Where(item => item.OwnerId != Guid.Empty)
+            .Select(item => item.OwnerId).Distinct().Where(id => !allIds.Contains(id))
+            .Where(id => repository.RetrieveItem(id) is null).ToHashSet();
+        var items = new Dictionary<Guid, VersionItem>();
+        foreach (var item in scopedItems)
+        {
+            var snapshot = Snapshot(item, seriesProviders);
+            if (snapshot.Primary is { } primary && missingPrimaryTargets.Contains(primary))
+                snapshot = snapshot with { PrimaryTargetMissing = true };
+            if (snapshot.Owner != Guid.Empty && missingOwnerTargets.Contains(snapshot.Owner))
+                snapshot = snapshot with { OwnerTargetMissing = true };
+            items.Add(item.Id, snapshot);
+        }
         if (items.Count == 0) throw new InvalidDataException("No indexed media under the configured root; integrity cannot be established");
         return items;
     }

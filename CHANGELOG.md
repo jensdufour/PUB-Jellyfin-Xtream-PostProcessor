@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.6.0.4
+
+- Clear a primary pointer only after Jellyfin confirms its target is absent from the full catalog and any recorded owner target is also absent.
+- Preserve the item, OwnerId and local/linked alternate arrays, and revalidate the missing targets and relationships before native persistence.
+
 ## 0.6.0.3
 
 - Capture parent-series provider IDs for version-integrity checks; use them only when episode coordinates match and no shared direct episode ID proves identity.

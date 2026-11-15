@@ -8,8 +8,10 @@
   cycle is repairable only when an unowned root, exact local-source path and the
   owned child's OwnerId agree; both records/links are revalidated before native
   save and persisted readback remains required. All other cycles remain
-  fail-closed. Never infer identity by title; failed checkpoint recovery remains
-  separate.
+  fail-closed. A primary pointer is cleared only when its target is absent from
+  Jellyfin's full catalog and any recorded owner target is also absent; retain
+  OwnerId and all alternate arrays. Never infer identity by title; failed
+  checkpoint recovery remains separate.
 
 - 0.6.0.2 child-label batching uses one native ancestor query per500
   normalization candidates, grouping cached-series children by SeriesId. Keep

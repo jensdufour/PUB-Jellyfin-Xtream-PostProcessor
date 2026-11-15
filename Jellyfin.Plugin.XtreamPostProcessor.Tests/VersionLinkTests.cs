@@ -110,6 +110,62 @@ public sealed class VersionLinkTests
         Assert.Equal([owned.Path], items[rootId].LocalPaths);
     }
 
+    [Fact]
+    public void ClearsCatalogVerifiedMissingPrimaryAndPreservesLocalSources()
+    {
+        var series = Guid.NewGuid();
+        var rootId = Guid.NewGuid();
+        var childId = Guid.NewGuid();
+        var root = Item(rootId, Guid.NewGuid()) with { Series = series, Providers = new(), PrimaryTargetMissing = true };
+        var child = Item(childId, rootId) with { Owner = rootId, Series = series, Providers = new() };
+        root = root with { LocalPaths = [child.Path] };
+        var items = new[] { root, child }.ToDictionary(item => item.Id);
+
+        var repair = Assert.Single(VersionLinkService.Plan(items));
+
+        Assert.Equal(rootId, repair.Child);
+        Assert.True(repair.ClearMissingPrimary);
+        items[rootId] = root with { Primary = null };
+        Assert.Empty(VersionLinkService.Plan(items));
+        Assert.Equal(root.LocalPaths, items[rootId].LocalPaths);
+        Assert.Equal(rootId, items[childId].Owner);
+    }
+
+    [Fact]
+    public void ClearsMissingPrimaryWhenOwnerIsAlsoAbsentWithoutChangingOwnerId()
+    {
+        var owner = Guid.NewGuid();
+        var orphan = Item(Guid.NewGuid(), Guid.NewGuid()) with
+        {
+            Owner = owner,
+            PrimaryTargetMissing = true,
+            OwnerTargetMissing = true
+        };
+        var items = new[] { orphan }.ToDictionary(item => item.Id);
+
+        var repair = Assert.Single(VersionLinkService.Plan(items));
+
+        Assert.True(repair.ClearMissingPrimary);
+        items[orphan.Id] = orphan with { Primary = null };
+        Assert.Empty(VersionLinkService.Plan(items));
+        Assert.Equal(owner, items[orphan.Id].Owner);
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    public void RejectsUnverifiedMissingPrimaryTarget(bool targetMissing, bool ownerMissing)
+    {
+        var orphan = Item(Guid.NewGuid(), Guid.NewGuid()) with
+        {
+            Owner = Guid.NewGuid(),
+            PrimaryTargetMissing = targetMissing,
+            OwnerTargetMissing = ownerMissing
+        };
+
+        Assert.Throws<InvalidDataException>(() => VersionLinkService.Plan(new[] { orphan }.ToDictionary(item => item.Id)));
+    }
+
     [Theory]
     [InlineData("missing-owner")]
     [InlineData("missing-local-path")]
