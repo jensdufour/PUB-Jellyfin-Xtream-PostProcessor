@@ -48,8 +48,19 @@ internal sealed class VersionLinkService(ILibraryManager library, IItemRepositor
                 throw new InvalidDataException($"Version {parent.Id} has an unindexed local source");
         }
         var corrected = new Dictionary<Guid, Guid?>();
+        foreach (var child in items.Values.Where(item => item.Owner != Guid.Empty && item.Primary.HasValue))
+        {
+            if (!items.TryGetValue(child.Owner, out var owner) || owner.Owner != Guid.Empty || owner.Primary.HasValue
+                || !owner.LocalPaths.Contains(child.Path) || !incoming.TryGetValue(child.Id, out var parents)
+                || !items.TryGetValue(child.Primary!.Value, out var linkedRoot) || linkedRoot.Primary.HasValue
+                || !parents.Contains(owner.Id) || !parents.Contains(linkedRoot.Id) || linkedRoot.Id == owner.Id
+                || !SameIdentity(child, owner) || !SameIdentity(child, linkedRoot) || !SameIdentity(owner, linkedRoot)) continue;
+            repairs.Add(new Repair(child.Id, child.Primary, owner.Id, false));
+            corrected.Add(child.Id, owner.Id);
+        }
         foreach (var child in items.Values.Where(item => item.PrimaryTargetMissing && item.Primary.HasValue))
         {
+            if (corrected.ContainsKey(child.Id)) continue;
             if (items.ContainsKey(child.Primary!.Value)) continue;
             if (child.Owner != Guid.Empty && items.TryGetValue(child.Owner, out var owner)
                 && owner.Owner == Guid.Empty && owner.Primary is null && owner.LocalPaths.Contains(child.Path)

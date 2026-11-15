@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.6.0.6
+
+- Reconcile a child linked under both its verified local-owner root and a different primary root only when the child and both roots share proven media identity.
+- Rehome the child pointer and other linked root through native persistence while preserving local ownership and source arrays.
+
 ## 0.6.0.5
 
 - Rehome a missing primary pointer to an existing owner only when its unowned root, exact local path, reciprocal link and episode identity all agree.

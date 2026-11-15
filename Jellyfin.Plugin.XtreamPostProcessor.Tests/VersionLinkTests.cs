@@ -178,6 +178,50 @@ public sealed class VersionLinkTests
     }
 
     [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void ReconcilesExistingPrimaryToVerifiedOwnerRoot(bool identitiesMatch)
+    {
+        var series = Guid.NewGuid();
+        var ownerId = Guid.NewGuid();
+        var linkedRootId = Guid.NewGuid();
+        var childId = Guid.NewGuid();
+        var owner = Item(ownerId) with { Series = series, Providers = new() { ["Tmdb"] = "42" } };
+        var linkedRoot = Item(linkedRootId) with
+        {
+            Series = series,
+            Providers = new() { ["Tmdb"] = identitiesMatch ? "42" : "43" },
+            LinkedIds = [childId]
+        };
+        var child = Item(childId, linkedRootId) with
+        {
+            Owner = ownerId,
+            Series = series,
+            Providers = new() { ["Tmdb"] = "42" }
+        };
+        owner = owner with { LocalPaths = [child.Path], LinkedIds = [child.Id] };
+        var items = new[] { owner, linkedRoot, child }.ToDictionary(item => item.Id);
+
+        if (!identitiesMatch)
+        {
+            Assert.Throws<InvalidDataException>(() => VersionLinkService.Plan(items));
+            return;
+        }
+
+        var repairs = VersionLinkService.Plan(items);
+        Assert.Equal(2, repairs.Count);
+        Assert.Contains(repairs, change => change.Child == childId && change.Primary == ownerId && !change.AddLink);
+        Assert.Contains(repairs, change => change.Child == linkedRootId && change.Primary == ownerId && change.AddLink);
+        items[childId] = child with { Primary = ownerId };
+        items[linkedRootId] = linkedRoot with { Primary = ownerId };
+        items[ownerId] = owner with { LinkedIds = [childId, linkedRootId] };
+        Assert.Empty(VersionLinkService.Plan(items));
+        Assert.Equal(ownerId, items[childId].Owner);
+        Assert.Equal([child.Path], items[ownerId].LocalPaths);
+        Assert.Equal([childId], linkedRoot.LinkedIds);
+    }
+
+    [Theory]
     [InlineData(false, false)]
     [InlineData(true, false)]
     public void RejectsUnverifiedMissingPrimaryTarget(bool targetMissing, bool ownerMissing)
