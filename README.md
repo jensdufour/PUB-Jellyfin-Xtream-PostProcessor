@@ -1,7 +1,7 @@
 # Xtream Post Processor for Jellyfin
 
 Portable Jellyfin 12 plugin for canonical Movie and Series titles after Xtream
-Library synchronization and indexing. Source candidate **0.6.0.9** targets .NET 10
+ Library synchronization and indexing. Release **0.6.0.9** targets .NET 10
 and the Jellyfin 12.0 API baseline. The selected rollout is repository installation
 on Jellyfin 12.1 when native writers are idle.
 Release tags build and publish the package and catalog through GitHub Actions.
@@ -85,7 +85,7 @@ fail the pre-save guard. The Release suite passes122 tests.
 
 ## Install
 
-After the candidate is published, add this repository in Jellyfin and select
+Add this repository in Jellyfin and select
 **Xtream Post Processor 0.6.0.9**.
 Earlier catalog entries remain available for Jellyfin 10.11; do not select them
 on Jellyfin 12.

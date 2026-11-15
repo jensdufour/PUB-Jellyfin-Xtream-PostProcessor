@@ -4,10 +4,11 @@
   repair. A later planned child sharing that primary validates against the
   in-pass result, not the initial snapshot; unrelated link changes still fail
   closed. Regression covers two additions and duplicate tracking. Full Release
-  suite122/122 passes. The Nov15 CT110 0.6.0.8 run exposed this guard bug after
-  581 of694 relationship operations had persisted; no later native flow stage
-  completed. Do not retry until this release is installed and the flow is safely
-  re-armed from a fresh plan.
+  suite122/122 passes. Published as v0.6.0.9 from commit4f26fad and Active on
+  CT110 after a single authorized restart. The .8 failure had581/694 planned
+  relationships reflected in DB; a fresh .9 plan repaired113 and passed
+  persisted readback. Enrichment completed; normalization is running in stage1.
+  Preserve the archived failed checkpoint and do not replay it.
 
 - VersionLinkService episode identity requires exact season/number/end-number
   coordinates. Shared direct episode IDs must all agree; if none are shared, an
