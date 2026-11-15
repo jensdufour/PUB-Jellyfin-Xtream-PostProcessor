@@ -208,15 +208,15 @@ public sealed class VersionLinkTests
             return;
         }
 
-        var repairs = VersionLinkService.Plan(items);
-        Assert.Equal(2, repairs.Count);
-        Assert.Contains(repairs, change => change.Child == childId && change.Primary == ownerId && !change.AddLink);
-        Assert.Contains(repairs, change => change.Child == linkedRootId && change.Primary == ownerId && change.AddLink);
-        items[childId] = child with { Primary = ownerId };
+        var repair = Assert.Single(VersionLinkService.Plan(items));
+        Assert.Equal(linkedRootId, repair.Child);
+        Assert.Equal(ownerId, repair.Primary);
+        Assert.True(repair.AddLink);
         items[linkedRootId] = linkedRoot with { Primary = ownerId };
         items[ownerId] = owner with { LinkedIds = [childId, linkedRootId] };
         Assert.Empty(VersionLinkService.Plan(items));
         Assert.Equal(ownerId, items[childId].Owner);
+        Assert.Equal(linkedRootId, items[childId].Primary);
         Assert.Equal([child.Path], items[ownerId].LocalPaths);
         Assert.Equal([childId], linkedRoot.LinkedIds);
     }

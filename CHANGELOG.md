@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.6.0.7
+
+- Rehome a linked primary root to the verified local-owner root while preserving the child's existing primary chain.
+- Require matching supported identity across the child and both roots before native pointer/link updates.
+
 ## 0.6.0.6
 
 - Reconcile a child linked under both its verified local-owner root and a different primary root only when the child and both roots share proven media identity.

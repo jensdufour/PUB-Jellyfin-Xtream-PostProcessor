@@ -13,9 +13,9 @@
   OwnerId and all alternate arrays. If the owner exists, rehome only to that
   unowned root when the exact local path, reciprocal edge and episode identity
   agree; revalidate before save. If the child is also linked under a different
-  primary, rehome that root only when the child and both roots pass the supported
-  identity checks. Never infer identity by title; failed checkpoint recovery
-  remains separate.
+  primary, rehome that root while preserving the child's primary chain only when
+  the child and both roots pass supported identity checks. Never infer identity
+  by title; failed checkpoint recovery remains separate.
 
 - 0.6.0.2 child-label batching uses one native ancestor query per500
   normalization candidates, grouping cached-series children by SeriesId. Keep

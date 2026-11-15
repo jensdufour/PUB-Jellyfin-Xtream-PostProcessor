@@ -52,11 +52,19 @@ internal sealed class VersionLinkService(ILibraryManager library, IItemRepositor
         {
             if (!items.TryGetValue(child.Owner, out var owner) || owner.Owner != Guid.Empty || owner.Primary.HasValue
                 || !owner.LocalPaths.Contains(child.Path) || !incoming.TryGetValue(child.Id, out var parents)
-                || !items.TryGetValue(child.Primary!.Value, out var linkedRoot) || linkedRoot.Primary.HasValue
-                || !parents.Contains(owner.Id) || !parents.Contains(linkedRoot.Id) || linkedRoot.Id == owner.Id
+                || !parents.Contains(owner.Id) || child.PrimaryTargetMissing || !items.ContainsKey(child.Primary!.Value)) continue;
+            var linkedRootId = Root(child.Primary.Value, items);
+            var linkedRoot = items[linkedRootId];
+            if (linkedRootId == owner.Id || linkedRoot.Owner != Guid.Empty
                 || !SameIdentity(child, owner) || !SameIdentity(child, linkedRoot) || !SameIdentity(owner, linkedRoot)) continue;
-            repairs.Add(new Repair(child.Id, child.Primary, owner.Id, false));
-            corrected.Add(child.Id, owner.Id);
+            if (corrected.TryGetValue(linkedRootId, out var previousCorrection))
+            {
+                if (previousCorrection != owner.Id)
+                    throw new InvalidDataException($"Conflicting owner roots for linked version {linkedRootId}");
+                continue;
+            }
+            repairs.Add(new Repair(linkedRootId, linkedRoot.Primary, owner.Id, !owner.LinkedIds.Contains(linkedRootId)));
+            corrected.Add(linkedRootId, owner.Id);
         }
         foreach (var child in items.Values.Where(item => item.PrimaryTargetMissing && item.Primary.HasValue))
         {
