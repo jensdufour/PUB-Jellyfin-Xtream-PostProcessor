@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.6.0.5
+
+- Rehome a missing primary pointer to an existing owner only when its unowned root, exact local path, reciprocal link and episode identity all agree.
+- Revalidate ownership, source paths, links, IDs and locks before native persistence.
+
 ## 0.6.0.4
 
 - Clear a primary pointer only after Jellyfin confirms its target is absent from the full catalog and any recorded owner target is also absent.

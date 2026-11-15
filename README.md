@@ -49,9 +49,11 @@ agree. The native saver clears only the proven root's cyclic pointer, rechecks
 both records and links immediately before saving, then requires persisted
 readback. A primary pointer to an item absent from Jellyfin's full catalog is
 cleared only when the recorded owner is empty or also absent; the item, owner
-field and alternate arrays are preserved. Other or conflicting relationships
-still stop. Any failed production checkpoint still requires separate guarded
-recovery after deployment.
+field and alternate arrays are preserved. If the owner exists, the pointer is
+repaired only to that unowned root when its local path, reciprocal link and exact
+episode identity all agree. Other or conflicting relationships still stop. Any
+failed production checkpoint still requires separate guarded recovery after
+deployment.
 
 ## Features
 
@@ -75,7 +77,7 @@ recovery after deployment.
 ## Install
 
 After the candidate is published, add this repository in Jellyfin and select
-**Xtream Post Processor 0.6.0.4**.
+**Xtream Post Processor 0.6.0.5**.
 Earlier catalog entries remain available for Jellyfin 10.11; do not select them
 on Jellyfin 12.
 
@@ -94,7 +96,7 @@ package does not require restarting immediately. The task names remain under
 	changing sync. Preserve the database, configuration and affected NFOs through
 	the existing backup procedure; an application-disk backup alone does not
 	cover media on separate mounts. Do not interrupt the running scan to install.
-2. Install version `0.6.0.4` through the repository and leave its restart pending
+2. Install version `0.6.0.5` through the repository and leave its restart pending
 	until the current scan finishes and a restart is approved. On an upgrade,
 	persist `AuditOnly=true` before startup; saved write settings override defaults.
 3. Set the existing absolute Xtream media root, enable the native `TheMovieDb`

@@ -151,6 +151,32 @@ public sealed class VersionLinkTests
         Assert.Equal(owner, items[orphan.Id].Owner);
     }
 
+    [Fact]
+    public void RehomesMissingPrimaryToVerifiedOwnerRoot()
+    {
+        var series = Guid.NewGuid();
+        var rootId = Guid.NewGuid();
+        var childId = Guid.NewGuid();
+        var missingPrimary = Guid.NewGuid();
+        var root = Item(rootId) with { Series = series, Providers = new() };
+        var child = Item(childId, missingPrimary) with { Owner = rootId, Series = series, Providers = new() };
+        root = root with { LocalPaths = [child.Path], LinkedIds = [child.Id] };
+        child = child with { PrimaryTargetMissing = true };
+        var items = new[] { root, child }.ToDictionary(item => item.Id);
+
+        var repair = Assert.Single(VersionLinkService.Plan(items));
+
+        Assert.Equal(childId, repair.Child);
+        Assert.Equal(missingPrimary, repair.PreviousPrimary);
+        Assert.Equal(rootId, repair.Primary);
+        Assert.False(repair.AddLink);
+        items[childId] = child with { Primary = rootId };
+        Assert.Empty(VersionLinkService.Plan(items));
+        Assert.Equal(rootId, items[childId].Owner);
+        Assert.Equal([child.Path], items[rootId].LocalPaths);
+        Assert.Equal([childId], items[rootId].LinkedIds);
+    }
+
     [Theory]
     [InlineData(false, false)]
     [InlineData(true, false)]

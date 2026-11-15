@@ -50,7 +50,17 @@ internal sealed class VersionLinkService(ILibraryManager library, IItemRepositor
         var corrected = new Dictionary<Guid, Guid?>();
         foreach (var child in items.Values.Where(item => item.PrimaryTargetMissing && item.Primary.HasValue))
         {
-            if (items.ContainsKey(child.Primary!.Value) || (child.Owner != Guid.Empty && !child.OwnerTargetMissing)) continue;
+            if (items.ContainsKey(child.Primary!.Value)) continue;
+            if (child.Owner != Guid.Empty && items.TryGetValue(child.Owner, out var owner)
+                && owner.Owner == Guid.Empty && owner.Primary is null && owner.LocalPaths.Contains(child.Path)
+                && incoming.TryGetValue(child.Id, out var owners) && owners.Count == 1 && owners.Contains(owner.Id)
+                && SameIdentity(child, owner))
+            {
+                repairs.Add(new Repair(child.Id, child.Primary, owner.Id, false));
+                corrected.Add(child.Id, owner.Id);
+                continue;
+            }
+            if (child.Owner != Guid.Empty && !child.OwnerTargetMissing) continue;
             repairs.Add(new Repair(child.Id, child.Primary, child.Id, false, ClearMissingPrimary: true));
             corrected.Add(child.Id, null);
         }
@@ -215,6 +225,9 @@ internal sealed class VersionLinkService(ILibraryManager library, IItemRepositor
             if (child.PrimaryVersionId != change.PreviousPrimary || child.OwnerId != items[child.Id].Owner
                 || child.Path != items[child.Id].Path || primary.Path != items[primary.Id].Path
                 || primary.PrimaryVersionId.HasValue
+                || (child.OwnerId != Guid.Empty && (child.OwnerId != primary.Id
+                    || !primary.LocalAlternateVersions.Contains(child.Path)
+                    || !LinksMatch(child, items[child.Id]) || !LinksMatch(primary, items[primary.Id])))
                 || !SameIdentity(Snapshot(child, liveSeriesProviders), Snapshot(primary, liveSeriesProviders))
                 || child.IsLocked || primary.IsLocked || child.LockedFields.Length > 0 || primary.LockedFields.Length > 0)
                 throw new InvalidDataException($"Version identity, links or locks changed before repairing {change.Child}");

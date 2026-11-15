@@ -10,8 +10,10 @@
   save and persisted readback remains required. All other cycles remain
   fail-closed. A primary pointer is cleared only when its target is absent from
   Jellyfin's full catalog and any recorded owner target is also absent; retain
-  OwnerId and all alternate arrays. Never infer identity by title; failed
-  checkpoint recovery remains separate.
+  OwnerId and all alternate arrays. If the owner exists, rehome only to that
+  unowned root when the exact local path, reciprocal edge and episode identity
+  agree; revalidate before save. Never infer identity by title; failed checkpoint
+  recovery remains separate.
 
 - 0.6.0.2 child-label batching uses one native ancestor query per500
   normalization candidates, grouping cached-series children by SeriesId. Keep
