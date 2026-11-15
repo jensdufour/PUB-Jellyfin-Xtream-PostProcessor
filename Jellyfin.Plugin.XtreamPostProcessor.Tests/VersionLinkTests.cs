@@ -20,6 +20,11 @@ public sealed class VersionLinkTests
         var before = VersionLinkService.Capture("fixture", items);
         foreach (var change in plan)
         {
+            if (change.ClearPrimary)
+            {
+                items[change.Child] = items[change.Child] with { Primary = null };
+                continue;
+            }
             if (change.RemoveSelfLink)
             {
                 items[change.Child] = items[change.Child] with { LinkedIds = items[change.Child].LinkedIds.Where(id => id != change.Child).ToArray() };
@@ -80,6 +85,119 @@ public sealed class VersionLinkTests
         Assert.True(repair.AddLink);
         items[primary.Id] = primary with { LinkedIds = [child.Id] };
         Assert.Empty(VersionLinkService.Plan(items));
+    }
+
+    [Fact]
+    public void RepairsReciprocalPrimaryCycleFromVerifiedLocalOwner()
+    {
+        var series = Guid.NewGuid();
+        var rootId = Guid.NewGuid();
+        var ownedId = Guid.NewGuid();
+        var root = Item(rootId, ownedId) with { Series = series, Providers = new() };
+        var owned = Item(ownedId, rootId) with { Owner = rootId, Series = series, Providers = new() };
+        root = root with { LocalPaths = [owned.Path] };
+        var items = new[] { root, owned }.ToDictionary(item => item.Id);
+
+        var repair = Assert.Single(VersionLinkService.Plan(items));
+
+        Assert.Equal(rootId, repair.Child);
+        Assert.Equal(ownedId, repair.PreviousPrimary);
+        Assert.Equal(rootId, repair.Primary);
+        Assert.True(repair.ClearPrimary);
+        items[rootId] = root with { Primary = null };
+        Assert.Empty(VersionLinkService.Plan(items));
+        Assert.Equal(rootId, items[ownedId].Owner);
+        Assert.Equal([owned.Path], items[rootId].LocalPaths);
+    }
+
+    [Theory]
+    [InlineData("missing-owner")]
+    [InlineData("missing-local-path")]
+    [InlineData("identity-conflict")]
+    public void RejectsReciprocalPrimaryCycleWithoutCompleteOwnerProof(string scenario)
+    {
+        var series = Guid.NewGuid();
+        var rootId = Guid.NewGuid();
+        var ownedId = Guid.NewGuid();
+        var root = Item(rootId, ownedId) with
+        {
+            Series = series,
+            Providers = new(),
+            LocalPaths = scenario == "missing-local-path" ? [] : ["/media/owned.strm"]
+        };
+        var owned = Item(ownedId, rootId) with
+        {
+            Owner = scenario == "missing-owner" ? Guid.Empty : rootId,
+            Series = scenario == "identity-conflict" ? Guid.NewGuid() : series,
+            Number = scenario == "identity-conflict" ? 3 : 2,
+            Providers = new()
+        };
+
+        Assert.Throws<InvalidDataException>(() => VersionLinkService.Plan(new[] { root, owned }.ToDictionary(item => item.Id)));
+    }
+
+    [Fact]
+    public void AcceptsEpisodeIdentityFromMatchingParentSeriesIds()
+    {
+        var primary = Item(Guid.NewGuid()) with
+        {
+            Providers = new(),
+            Series = Guid.NewGuid(),
+            SeriesProviders = new() { ["Tvdb"] = "series-42" }
+        };
+        var child = Item(Guid.NewGuid(), primary.Id) with
+        {
+            Providers = new() { ["Tvdb"] = "episode-99" },
+            Series = Guid.NewGuid(),
+            SeriesProviders = new() { ["Tvdb"] = "series-42" }
+        };
+
+        var repair = Assert.Single(VersionLinkService.Plan(new[] { primary, child }.ToDictionary(item => item.Id)));
+
+        Assert.Equal(primary.Id, repair.Primary);
+    }
+
+    [Theory]
+    [InlineData("episode-id-conflict")]
+    [InlineData("series-id-conflict")]
+    [InlineData("episode-number-conflict")]
+    [InlineData("end-number-conflict")]
+    [InlineData("unsupported-provider")]
+    public void RejectsParentSeriesFallbackWhenEpisodeEvidenceConflicts(string scenario)
+    {
+        var primary = Item(Guid.NewGuid()) with
+        {
+            Providers = scenario switch
+            {
+                "episode-id-conflict" => new() { ["Tvdb"] = "episode-1" },
+                "unsupported-provider" => new() { ["Custom"] = "same" },
+                _ => new()
+            },
+            Series = Guid.NewGuid(),
+            Number = 2,
+            EndNumber = 3,
+            SeriesProviders = new() { ["Tvdb"] = "series-42" }
+        };
+        var child = Item(Guid.NewGuid(), primary.Id) with
+        {
+            Providers = scenario switch
+            {
+                "episode-id-conflict" => new() { ["Tvdb"] = "episode-2" },
+                "unsupported-provider" => new() { ["Custom"] = "same" },
+                _ => new()
+            },
+            Series = Guid.NewGuid(),
+            Number = scenario == "episode-number-conflict" ? 4 : 2,
+            EndNumber = scenario == "end-number-conflict" ? 4 : 3,
+            SeriesProviders = scenario switch
+            {
+                "series-id-conflict" => new() { ["Tvdb"] = "series-43" },
+                "unsupported-provider" => new() { ["Tmdb"] = "series-42" },
+                _ => new() { ["Tvdb"] = "series-42" }
+            }
+        };
+
+        Assert.Throws<InvalidDataException>(() => VersionLinkService.Plan(new[] { primary, child }.ToDictionary(item => item.Id)));
     }
 
     [Fact]

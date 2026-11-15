@@ -1,12 +1,15 @@
 # Xtream Post Processor Decisions
 
 - VersionLinkService episode identity requires exact season/number/end-number
-  coordinates. Shared TVDB/TMDb/IMDb IDs must all agree; if none are shared, the
-  non-empty SeriesId must match. VersionItem does not include parent-series
-  provider IDs, so some cross-SeriesId episodes cannot be proven identical.
-  Keep the gate fail-closed; never infer identity by title. Parent-ID support
-  needs exact-coordinate and negative-collision fixtures; checkpoint recovery
-  remains a separate guarded operation.
+  coordinates. Shared direct episode IDs must all agree; if none are shared, an
+  exact non-empty SeriesId match suffices, otherwise shared parent-series
+  TVDB/TMDb/IMDb IDs must exist and all agree. The parent-ID fallback has exact-
+  coordinate and negative-collision fixtures. A reciprocal two-item primary
+  cycle is repairable only when an unowned root, exact local-source path and the
+  owned child's OwnerId agree; both records/links are revalidated before native
+  save and persisted readback remains required. All other cycles remain
+  fail-closed. Never infer identity by title; failed checkpoint recovery remains
+  separate.
 
 - 0.6.0.2 child-label batching uses one native ancestor query per500
   normalization candidates, grouping cached-series children by SeriesId. Keep

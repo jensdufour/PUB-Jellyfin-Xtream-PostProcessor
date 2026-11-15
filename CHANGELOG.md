@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.6.0.3
+
+- Capture parent-series provider IDs for version-integrity checks; use them only when episode coordinates match and no shared direct episode ID proves identity.
+- Keep the check fail-closed when supported shared IDs conflict or parent-series identity is unavailable.
+- Repair a two-item primary cycle only when one record's owner and exact local-source path prove the root; other cycles remain failures.
+
 ## 0.6.0.2
 
 - Batch cached-series child-label discovery in groups of up to 500 normalization candidates instead of querying every unchanged series separately.

@@ -1,7 +1,7 @@
 # Xtream Post Processor for Jellyfin
 
 Portable Jellyfin 12 plugin for canonical Movie and Series titles after Xtream
-Library synchronization and indexing. Version **0.6.0.2** targets .NET 10
+Library synchronization and indexing. Source candidate **0.6.0.3** targets .NET 10
 and the Jellyfin 12.0 API baseline. The selected rollout is repository installation
 on Jellyfin 12.1 when native writers are idle.
 Release tags build and publish the package and catalog through GitHub Actions.
@@ -36,13 +36,19 @@ are required before connecting the roots. Native persistence retains local
 ownership, local sources and existing links; conflicting identities still stop
 the flow. An interrupted reciprocal-link write remains repairable on recovery.
 
-The integrity snapshot captures item-level provider IDs and `SeriesId`, not
-parent-series provider IDs. Episode identity requires exact season, episode and
-end-number coordinates. Shared TVDB/TMDb/IMDb IDs must all agree; when none are
-shared, the non-empty `SeriesId` must match. If these checks cannot prove the
+The integrity snapshot captures episode and parent-series provider IDs plus
+`SeriesId`. Episode identity requires exact season, episode and end-number
+coordinates. Shared direct episode IDs must all agree. When none are shared, an
+exact non-empty `SeriesId` match is sufficient; otherwise shared parent-series
+TVDB/TMDb/IMDb IDs must exist and all agree. If these checks cannot prove the
 relationship, the gate stops. Do not infer identity by title or bypass the gate.
-Any future parent-series identity support must retain exact episode coordinates
-and include negative collision fixtures before checkpoint recovery.
+Parent-series fallback retains exact episode coordinates and has negative
+collision fixtures. A reciprocal two-item primary cycle is repairable only when
+an unowned root, its exact local-source path and the owned child's `OwnerId` all
+agree. The native saver clears only the proven root's cyclic pointer, rechecks
+both records and links immediately before saving, then requires persisted
+readback. Other or conflicting cycles still stop. Any failed production
+checkpoint still requires separate guarded recovery after deployment.
 
 ## Features
 
@@ -65,7 +71,8 @@ and include negative collision fixtures before checkpoint recovery.
 
 ## Install
 
-Add this repository in Jellyfin and select **Xtream Post Processor 0.6.0.2**.
+After the candidate is published, add this repository in Jellyfin and select
+**Xtream Post Processor 0.6.0.3**.
 Earlier catalog entries remain available for Jellyfin 10.11; do not select them
 on Jellyfin 12.
 
@@ -84,7 +91,7 @@ package does not require restarting immediately. The task names remain under
 	changing sync. Preserve the database, configuration and affected NFOs through
 	the existing backup procedure; an application-disk backup alone does not
 	cover media on separate mounts. Do not interrupt the running scan to install.
-2. Install version `0.6.0.2` through the repository and leave its restart pending
+2. Install version `0.6.0.3` through the repository and leave its restart pending
 	until the current scan finishes and a restart is approved. On an upgrade,
 	persist `AuditOnly=true` before startup; saved write settings override defaults.
 3. Set the existing absolute Xtream media root, enable the native `TheMovieDb`

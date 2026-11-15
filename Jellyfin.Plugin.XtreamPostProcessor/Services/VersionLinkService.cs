@@ -14,11 +14,14 @@ namespace Jellyfin.Plugin.XtreamPostProcessor.Services;
 internal sealed class VersionLinkService(ILibraryManager library, IItemRepository repository,
     IItemPersistenceService persistence, AuditReportWriter reports)
 {
+    private static readonly string[] IdentityProviders = ["Tvdb", "Tmdb", "Imdb"];
+
     internal sealed record VersionItem(Guid Id, string Path, Guid? Primary, Guid Owner, bool Episode,
         int? Season, int? Number, int? EndNumber, Guid Series, Dictionary<string, string> Providers,
-        string[] LocalPaths, Guid[] LinkedIds);
+        string[] LocalPaths, Guid[] LinkedIds, Dictionary<string, string>? SeriesProviders = null);
 
-    internal sealed record Repair(Guid Child, Guid? PreviousPrimary, Guid Primary, bool AddLink, bool RemoveSelfLink = false);
+    internal sealed record Repair(Guid Child, Guid? PreviousPrimary, Guid Primary, bool AddLink,
+        bool RemoveSelfLink = false, bool ClearPrimary = false);
     internal sealed record Baseline(string Cycle, string MediaHash, Dictionary<Guid, Guid> Groups);
 
     internal static IReadOnlyList<Repair> Plan(IReadOnlyDictionary<Guid, VersionItem> items)
@@ -43,8 +46,31 @@ internal sealed class VersionLinkService(ILibraryManager library, IItemRepositor
             if (parent.LocalPaths.Any(path => !paths.ContainsKey(path)))
                 throw new InvalidDataException($"Version {parent.Id} has an unindexed local source");
         }
+        var corrected = new Dictionary<Guid, Guid?>();
+        foreach (var child in items.Values.Where(item => item.Primary.HasValue))
+        {
+            if (!items.TryGetValue(child.Primary!.Value, out var parent) || parent.Primary != child.Id) continue;
+            VersionItem? root = null;
+            VersionItem? owned = null;
+            if (child.Owner == Guid.Empty && parent.Owner == child.Id && child.LocalPaths.Contains(parent.Path))
+            {
+                root = child;
+                owned = parent;
+            }
+            else if (parent.Owner == Guid.Empty && child.Owner == parent.Id && parent.LocalPaths.Contains(child.Path))
+            {
+                root = parent;
+                owned = child;
+            }
+            if (root is null || owned is null || !SameIdentity(root, owned)
+                || !incoming.TryGetValue(owned.Id, out var owners) || owners.Count != 1 || !owners.Contains(root.Id)
+                || corrected.ContainsKey(root.Id)) continue;
+            repairs.Add(new Repair(root.Id, owned.Id, root.Id, false, ClearPrimary: true));
+            corrected.Add(root.Id, null);
+        }
         foreach (var child in items.Values)
         {
+            if (corrected.ContainsKey(child.Id)) continue;
             if (child.Primary is not { } previous) continue;
             var seen = new HashSet<Guid> { child.Id };
             var primary = previous;
@@ -52,8 +78,9 @@ internal sealed class VersionLinkService(ILibraryManager library, IItemRepositor
             {
                 if (!seen.Add(primary) || !items.TryGetValue(primary, out var parent))
                     throw new InvalidDataException($"Missing or cyclic primary for {child.Id}");
-                if (parent.Primary is not { } next) break;
-                primary = next;
+                var next = corrected.TryGetValue(primary, out var replacement) ? replacement : parent.Primary;
+                if (next is not { } nextPrimary) break;
+                primary = nextPrimary;
             }
             var root = items[primary];
             incoming.TryGetValue(child.Id, out var parents);
@@ -66,8 +93,8 @@ internal sealed class VersionLinkService(ILibraryManager library, IItemRepositor
             if (!SameIdentity(child, root))
                 throw new InvalidDataException($"Cannot prove the media identity for version {child.Id} and primary {primary}");
             repairs.Add(new Repair(child.Id, previous, primary, parents?.Contains(primary) != true));
+            corrected[child.Id] = primary;
         }
-        var corrected = repairs.ToDictionary(change => change.Child, change => change.Primary);
         foreach (var (child, parents) in incoming)
         {
             var expected = corrected.TryGetValue(child, out var repaired) ? repaired : items[child].Primary;
@@ -103,13 +130,20 @@ internal sealed class VersionLinkService(ILibraryManager library, IItemRepositor
                 && parent.Providers.GetValueOrDefault("Tmdb") == movieId;
         if (child.Season != parent.Season || child.Number != parent.Number || child.EndNumber != parent.EndNumber
             || child.Number is null || child.Season is null) return false;
-        var common = new[] { "Tvdb", "Tmdb", "Imdb" }.Where(provider =>
-            child.Providers.TryGetValue(provider, out var value) && !string.IsNullOrWhiteSpace(value)
-            && parent.Providers.TryGetValue(provider, out var other) && !string.IsNullOrWhiteSpace(other)).ToArray();
-        return common.Length > 0
-            ? common.All(provider => child.Providers[provider] == parent.Providers[provider])
-            : child.Series != Guid.Empty && child.Series == parent.Series;
+        var commonEpisodeIds = CommonProviders(child.Providers, parent.Providers);
+        if (commonEpisodeIds.Length > 0)
+            return commonEpisodeIds.All(provider => child.Providers[provider] == parent.Providers[provider]);
+        if (child.Series != Guid.Empty && child.Series == parent.Series) return true;
+        var commonSeriesIds = CommonProviders(child.SeriesProviders, parent.SeriesProviders);
+        return commonSeriesIds.Length > 0
+            && commonSeriesIds.All(provider => child.SeriesProviders![provider] == parent.SeriesProviders![provider]);
     }
+
+    private static string[] CommonProviders(IReadOnlyDictionary<string, string>? first, IReadOnlyDictionary<string, string>? second) =>
+        IdentityProviders.Where(provider => first?.TryGetValue(provider, out var value) == true
+            && !string.IsNullOrWhiteSpace(value)
+            && second?.TryGetValue(provider, out var other) == true && !string.IsNullOrWhiteSpace(other))
+            .ToArray();
 
     internal async Task CheckAsync(string mediaRoot, string cycle, string baselinePath, bool repair,
         Func<CancellationToken, Task> ensureReady, CancellationToken token)
@@ -124,12 +158,10 @@ internal sealed class VersionLinkService(ILibraryManager library, IItemRepositor
         {
             await ensureReady(token).ConfigureAwait(false);
             var child = repository.RetrieveItem(change.Child) as Video ?? throw new InvalidDataException("Version disappeared before repair");
-            var primary = repository.RetrieveItem(change.Primary) as Video ?? throw new InvalidDataException("Primary disappeared before repair");
             if (change.RemoveSelfLink)
             {
                 if (child.PrimaryVersionId.HasValue || child.Path != items[child.Id].Path || child.IsLocked || child.LockedFields.Length > 0
-                    || !child.LocalAlternateVersions.SequenceEqual(items[child.Id].LocalPaths)
-                    || !child.LinkedAlternateVersions.Select(link => link.ItemId!.Value).SequenceEqual(items[child.Id].LinkedIds))
+                    || !LinksMatch(child, items[child.Id]))
                     throw new InvalidDataException($"Self-linked primary changed before repair: {child.Id}");
                 child.LinkedAlternateVersions = child.LinkedAlternateVersions.Where(link => link.ItemId != child.Id).ToArray();
                 persistence.SaveItems([child], CancellationToken.None);
@@ -138,9 +170,32 @@ internal sealed class VersionLinkService(ILibraryManager library, IItemRepositor
                     library.RegisterItem(repository.RetrieveItem(alternate.ItemId!.Value));
                 continue;
             }
+            if (change.ClearPrimary)
+            {
+                if (change.PreviousPrimary is not { } ownedId)
+                    throw new InvalidDataException("Owner-anchored cycle is missing its owned source");
+                var owned = repository.RetrieveItem(ownedId) as Video
+                    ?? throw new InvalidDataException("Owned version disappeared before primary-cycle repair");
+                var cycleSeriesProviders = ReadSeriesProviders([child, owned]);
+                if (child.PrimaryVersionId != ownedId || child.OwnerId != Guid.Empty || child.Path != items[child.Id].Path
+                    || owned.PrimaryVersionId != child.Id || owned.OwnerId != child.Id || owned.Path != items[owned.Id].Path
+                    || !child.LocalAlternateVersions.Contains(owned.Path) || !LinksMatch(child, items[child.Id])
+                    || !LinksMatch(owned, items[owned.Id])
+                    || !SameIdentity(Snapshot(child, cycleSeriesProviders), Snapshot(owned, cycleSeriesProviders))
+                    || child.IsLocked || owned.IsLocked || child.LockedFields.Length > 0 || owned.LockedFields.Length > 0)
+                    throw new InvalidDataException($"Owner-anchored primary cycle changed before repair: {child.Id}");
+                child.SetPrimaryVersionId(null);
+                persistence.SaveItems([child], CancellationToken.None);
+                library.RegisterItem(repository.RetrieveItem(child.Id));
+                library.RegisterItem(repository.RetrieveItem(owned.Id));
+                continue;
+            }
+            var primary = repository.RetrieveItem(change.Primary) as Video ?? throw new InvalidDataException("Primary disappeared before repair");
+            var liveSeriesProviders = ReadSeriesProviders([child, primary]);
             if (child.PrimaryVersionId != change.PreviousPrimary || child.OwnerId != items[child.Id].Owner
                 || child.Path != items[child.Id].Path || primary.Path != items[primary.Id].Path
-                || primary.PrimaryVersionId.HasValue || !SameIdentity(Snapshot(child), Snapshot(primary))
+                || primary.PrimaryVersionId.HasValue
+                || !SameIdentity(Snapshot(child, liveSeriesProviders), Snapshot(primary, liveSeriesProviders))
                 || child.IsLocked || primary.IsLocked || child.LockedFields.Length > 0 || primary.LockedFields.Length > 0)
                 throw new InvalidDataException($"Version identity, links or locks changed before repairing {change.Child}");
             if (change.PreviousPrimary != change.Primary)
@@ -193,7 +248,7 @@ internal sealed class VersionLinkService(ILibraryManager library, IItemRepositor
                 throw new InvalidDataException($"Post-merge version group lost a source: {group.Key}");
     }
 
-    private static Guid Root(Guid id, IReadOnlyDictionary<Guid, VersionItem> items, IReadOnlyDictionary<Guid, Guid>? corrected = null)
+    private static Guid Root(Guid id, IReadOnlyDictionary<Guid, VersionItem> items, IReadOnlyDictionary<Guid, Guid?>? corrected = null)
     {
         var seen = new HashSet<Guid>();
         while (true)
@@ -231,7 +286,7 @@ internal sealed class VersionLinkService(ILibraryManager library, IItemRepositor
         IncludeAlternates(idsQuery);
         var ids = repository.GetItemIdsList(idsQuery);
         var items = new Dictionary<Guid, VersionItem>();
-        foreach (var item in ReadSnapshot(ids, batch =>
+        var scopedItems = ReadSnapshot(ids, batch =>
         {
             token.ThrowIfCancellationRequested();
             var query = new InternalItemsQuery
@@ -243,11 +298,32 @@ internal sealed class VersionLinkService(ILibraryManager library, IItemRepositor
             };
             IncludeAlternates(query);
             return repository.GetItemList(query).OfType<Video>().ToArray();
-        }, item => item.Id))
-            if (!string.IsNullOrWhiteSpace(item.Path) && Path.GetFullPath(item.Path).StartsWith(prefix, comparison))
-                items.Add(item.Id, Snapshot(item));
+        }, item => item.Id).Where(item => !string.IsNullOrWhiteSpace(item.Path)
+            && Path.GetFullPath(item.Path).StartsWith(prefix, comparison)).ToArray();
+        var seriesProviders = ReadSeriesProviders(scopedItems);
+        foreach (var item in scopedItems) items.Add(item.Id, Snapshot(item, seriesProviders));
         if (items.Count == 0) throw new InvalidDataException("No indexed media under the configured root; integrity cannot be established");
         return items;
+    }
+
+    private Dictionary<Guid, Dictionary<string, string>> ReadSeriesProviders(IEnumerable<Video> items)
+    {
+        var seriesIds = items.OfType<Episode>().Select(item => item.SeriesId)
+            .Where(id => id != Guid.Empty).Distinct().ToArray();
+        var result = new Dictionary<Guid, Dictionary<string, string>>();
+        foreach (var batch in seriesIds.Chunk(500))
+        {
+            var query = new InternalItemsQuery
+            {
+                IncludeItemTypes = [BaseItemKind.Series], Recursive = false, IsVirtualItem = false,
+                GroupByPresentationUniqueKey = false, EnableTotalRecordCount = false,
+                DtoOptions = new DtoOptions(false) { Fields = [ItemFields.ProviderIds], EnableImages = false, EnableUserData = false },
+                ItemIds = batch
+            };
+            foreach (var series in repository.GetItemList(query).OfType<Series>())
+                result[series.Id] = new Dictionary<string, string>(series.ProviderIds, StringComparer.OrdinalIgnoreCase);
+        }
+        return result;
     }
 
     internal static IEnumerable<T> ReadSnapshot<T>(IReadOnlyList<Guid> ids,
@@ -271,8 +347,14 @@ internal sealed class VersionLinkService(ILibraryManager library, IItemRepositor
         property.SetValue(query, true);
     }
 
-    private static VersionItem Snapshot(Video item) => new(item.Id, item.Path, item.PrimaryVersionId, item.OwnerId,
-        item is Episode, (item as Episode)?.ParentIndexNumber, (item as Episode)?.IndexNumber, (item as Episode)?.IndexNumberEnd,
-        (item as Episode)?.SeriesId ?? Guid.Empty, new Dictionary<string, string>(item.ProviderIds, StringComparer.OrdinalIgnoreCase),
-        item.LocalAlternateVersions.ToArray(), item.LinkedAlternateVersions.Where(link => link.ItemId.HasValue).Select(link => link.ItemId!.Value).ToArray());
+    private static VersionItem Snapshot(Video item, IReadOnlyDictionary<Guid, Dictionary<string, string>> seriesProviders) =>
+        new(item.Id, item.Path, item.PrimaryVersionId, item.OwnerId, item is Episode,
+            (item as Episode)?.ParentIndexNumber, (item as Episode)?.IndexNumber, (item as Episode)?.IndexNumberEnd,
+            (item as Episode)?.SeriesId ?? Guid.Empty, new Dictionary<string, string>(item.ProviderIds, StringComparer.OrdinalIgnoreCase),
+            item.LocalAlternateVersions.ToArray(), item.LinkedAlternateVersions.Where(link => link.ItemId.HasValue).Select(link => link.ItemId!.Value).ToArray(),
+            seriesProviders.GetValueOrDefault((item as Episode)?.SeriesId ?? Guid.Empty));
+
+    private static bool LinksMatch(Video item, VersionItem snapshot) =>
+        item.LocalAlternateVersions.SequenceEqual(snapshot.LocalPaths)
+        && item.LinkedAlternateVersions.Select(link => link.ItemId!.Value).SequenceEqual(snapshot.LinkedIds);
 }
